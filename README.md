@@ -6,6 +6,8 @@ Built for the "Build What's Next with PayPal and AI" hackathon. Design: `Agent s
 
 ## Run it locally
 
+Step-by-step guide with checks and troubleshooting: **`docs/run-locally.md`** (four elements for the buyer side, a fifth for the seller side). Short version:
+
 Prerequisites: Docker, [uv](https://docs.astral.sh/uv/), Node 20+, a PayPal developer sandbox app, a GroqCloud API key (or `VERIFIER=stub` to run offline).
 
 ```bash

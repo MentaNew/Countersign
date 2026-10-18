@@ -65,6 +65,7 @@ export type Packet = {
   }
   narrative: string
   available_actions: string[]
+  evidence_types: string[]
 }
 
 export type DeskDispute = DeskSummary & {

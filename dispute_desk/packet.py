@@ -28,6 +28,39 @@ REASON_LABELS = {
 }
 
 
+# Evidence types PayPal accepts per dispute reason (developer.paypal.com/disputes/reasons-evidence,
+# read Oct 18, 2026). Sending a type not listed fails with EVIDENCE_TYPE_IS_NOT_ALLOWED.
+#   NOT_RECEIVED:     PROOF_OF_FULFILLMENT (tracking, or notes/documents), PROOF_OF_REFUND
+#   NOT_AS_DESCRIBED: OTHER (notes/documents), PROOF_OF_REFUND
+#   UNAUTHORISED:     OTHER (notes/documents), PROOF_OF_FULFILLMENT (tracking required),
+#                     PROOF_OF_REFUND
+NOTES_TYPE = {
+    "MERCHANDISE_OR_SERVICE_NOT_RECEIVED": "PROOF_OF_FULFILLMENT",
+    "MERCHANDISE_OR_SERVICE_NOT_AS_DESCRIBED": "OTHER",
+    "UNAUTHORISED": "OTHER",
+}
+TRACKING_OK = {"MERCHANDISE_OR_SERVICE_NOT_RECEIVED", "UNAUTHORISED"}
+
+
+def evidence_plan(reason: str, requested: list[str], fulfillment: dict | None,
+                  note: str) -> list[dict[str, Any]]:
+    """The `evidences` list for provide-evidence, using only types PayPal accepts for the reason.
+    The note (receipt narrative) rides on the reason's notes-capable type."""
+    tracking = None
+    if fulfillment and fulfillment.get("tracking_number") and reason in TRACKING_OK:
+        tracking = {"tracking_info": [{"carrier_name": fulfillment.get("carrier") or "OTHER",
+                                       "tracking_number": fulfillment["tracking_number"]}]}
+    notes_type = NOTES_TYPE.get(reason) or (requested[0] if requested else "OTHER")
+    if tracking and notes_type == "PROOF_OF_FULFILLMENT":
+        return [{"evidence_type": "PROOF_OF_FULFILLMENT", "evidence_info": tracking,
+                 "notes": note[:2000]}]
+    plan = [{"evidence_type": notes_type, "notes": note[:2000]}]
+    if tracking:
+        plan.insert(0, {"evidence_type": "PROOF_OF_FULFILLMENT", "evidence_info": tracking,
+                        "notes": "Proof of delivery."})
+    return plan
+
+
 def _money(m: dict | None) -> tuple[Decimal | None, str | None]:
     if not m:
         return None, None
@@ -148,6 +181,9 @@ def build_packet(
         "narrative": narrative,
         "available_actions": available,
         "allowed_response_options": dispute.get("allowed_response_options") or {},
+        # What "contest" would send, shown to the seller before they confirm.
+        "evidence_types": [e["evidence_type"] for e in
+                           evidence_plan(reason, requested, fulfillment, narrative)],
     }
 
 

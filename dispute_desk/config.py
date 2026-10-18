@@ -5,9 +5,11 @@ from functools import lru_cache
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from gateway.config import ROOT
+
 
 class DeskSettings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(env_file=ROOT / ".env", extra="ignore")
 
     # The seller's PayPal app. In the sandbox the same business account plays every seller.
     paypal_client_id: str = ""

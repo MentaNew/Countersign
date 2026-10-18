@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 from dispute_desk.app import create_desk_app, seller_token
 from dispute_desk.config import DeskSettings
 from dispute_desk.models import create_desk_schema
-from dispute_desk.packet import build_packet
+from dispute_desk.packet import build_packet, evidence_plan
 from dispute_desk.paypal import PayPalError
 from dispute_desk.receipts import GatewayReceipts
 from dispute_desk.service import Desk, DeskError
@@ -238,3 +238,19 @@ async def test_seller_login_is_separate_from_buyer_login(engine):
 def test_money_is_decimal_safe():
     facts = build_packet(dispute_json(amount="0.10"), None, now=NOW)["facts"]
     assert Decimal(facts["disputed_amount"]) == Decimal("0.10")
+
+
+def test_evidence_types_follow_paypal_rules_per_reason():
+    """Regression: OTHER on a not-received case was refused (EVIDENCE_TYPE_IS_NOT_ALLOWED, Oct 18)."""
+    ups = {"carrier": "UPS", "tracking_number": "1Z999"}
+    nr = "MERCHANDISE_OR_SERVICE_NOT_RECEIVED"
+    assert [e["evidence_type"] for e in evidence_plan(nr, ["PROOF_OF_FULFILLMENT"], None, "n")] \
+        == ["PROOF_OF_FULFILLMENT"]
+    with_tracking = evidence_plan(nr, [], ups, "n")
+    assert len(with_tracking) == 1 and with_tracking[0]["evidence_info"]["tracking_info"][0][
+        "tracking_number"] == "1Z999" and with_tracking[0]["notes"] == "n"
+    nad = evidence_plan("MERCHANDISE_OR_SERVICE_NOT_AS_DESCRIBED", [], ups, "n")
+    assert [e["evidence_type"] for e in nad] == ["OTHER"]  # tracking not accepted for this reason
+    assert [e["evidence_type"] for e in evidence_plan("UNAUTHORISED", [], ups, "n")] \
+        == ["PROOF_OF_FULFILLMENT", "OTHER"]
+    assert all("OTHER" != e["evidence_type"] for e in evidence_plan(nr, [], ups, "n"))

@@ -12,6 +12,10 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 *.egg-info/
+.coverage
+htmlcov/
+build/
+dist/
 
 # Web
 node_modules/

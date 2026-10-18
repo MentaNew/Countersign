@@ -154,6 +154,10 @@ export default function DisputePage({ id }: { id: string }) {
                 </label>
               ))}
             </fieldset>
+            {action === 'provide_evidence' && (
+              <p className="muted small">Will be sent as: {(p.evidence_types ?? ['refresh the case first']).map((t) => t.replaceAll('_', ' ').toLowerCase()).join(' + ')}
+                {' '}(the evidence types PayPal accepts for “{f.reason_label.toLowerCase()}”), with your note attached.</p>
+            )}
             {action === 'make_offer' && (
               <label className="field">Refund amount ({d.currency})
                 <input value={offer} onChange={(e) => setOffer(e.target.value)} inputMode="decimal" />

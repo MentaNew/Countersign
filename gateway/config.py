@@ -1,11 +1,17 @@
 from functools import lru_cache
+from pathlib import Path
 from typing import Literal
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# Resolve .env and key files from the repo root, not from wherever the command is run
+# (starting the gateway inside web/ once created a second, unused signing key there).
+ROOT = Path(__file__).resolve().parent.parent
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(env_file=ROOT / ".env", extra="ignore")
 
     paypal_client_id: str = ""
     paypal_client_secret: str = ""
@@ -35,6 +41,11 @@ class Settings(BaseSettings):
     public_base_url: str = "http://localhost:8000"
     web_base_url: str = "http://localhost:5173"
     merchant_base_url: str = "http://localhost:8100"
+
+    @field_validator("signing_key_path")
+    @classmethod
+    def _from_root(cls, v: str) -> str:
+        return v if Path(v).is_absolute() else str(ROOT / v)
 
 
 @lru_cache

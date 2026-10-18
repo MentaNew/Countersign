@@ -6,20 +6,10 @@ About 45 minutes. Each scenario mirrors a beat of the final demo video (allow, b
 
 You need: Docker running, `.env` filled (PayPal sandbox, `GROQ_API_KEY`, `AGENT_API_KEY`, `USER_PASSWORD`), the sandbox **personal** (buyer) account email and password from developer.paypal.com → Sandbox accounts.
 
-Four terminals from the repo root:
+Start the database, merchant, gateway and web app as described in **`docs/run-locally.md`** (plus the dispute desk for section 5b). Then the agent, in its own terminal:
 
 ```bash
-# T1: database + merchant
-docker compose up -d
-uv run uvicorn demo.merchant.app:app --port 8100
-
-# T2: gateway (VERIFIER=llm uses GroqCloud: ~1 call per cart, +2 per merchant text)
-uv run uvicorn gateway.main:app --port 8000
-
-# T3: web UI
-cd web && npm run dev            # http://localhost:5173, log in with USER_PASSWORD
-
-# T4: the agent (Claude Code, interactive)
+# Agent (Claude Code, interactive)
 cd demo/agent-workspace
 export AGENT_API_KEY=$(grep '^AGENT_API_KEY=' ../../.env | cut -d= -f2)
 claude                            # accept the trust dialog the first time; run /mcp to check "guardrail" is connected

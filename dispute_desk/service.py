@@ -10,7 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from dispute_desk.models import Action, Dispute, WebhookEvent
-from dispute_desk.packet import build_packet
+from dispute_desk.packet import build_packet, evidence_plan
 from dispute_desk.paypal import Disputes, PayPalError
 from dispute_desk.receipts import Receipts
 
@@ -136,6 +136,7 @@ class Desk:
             if not row:
                 raise NotFound(f"unknown dispute {dispute_id}")
             packet, fulfillment, currency = row.packet, row.fulfillment, row.currency
+            reason, requested = row.reason or "", packet.get("requested_by_paypal") or []
             amount = row.amount
             simulated = row.source == "simulated"
         if simulated:
@@ -146,16 +147,7 @@ class Desk:
             raise DeskError("a note is required")
 
         if action == "provide_evidence":
-            evidences = [{"evidence_type": "OTHER", "notes": note[:2000]}]
-            if fulfillment and fulfillment.get("tracking_number"):
-                evidences.insert(0, {
-                    "evidence_type": "PROOF_OF_FULFILLMENT",
-                    "evidence_info": {"tracking_info": [{
-                        "carrier_name": fulfillment.get("carrier") or "OTHER",
-                        "tracking_number": fulfillment["tracking_number"]}]},
-                    "notes": "Proof of delivery.",
-                })
-            request = {"evidences": evidences}
+            request = {"evidences": evidence_plan(reason, requested, fulfillment, note)}
             call = self.paypal.provide_evidence(dispute_id, request)
         elif action == "make_offer":
             value = Decimal(offer_amount) if offer_amount else amount
