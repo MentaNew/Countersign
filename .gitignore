@@ -1,0 +1,30 @@
+# Secrets: credentials and the gateway's signing key never leave this machine
+.env
+.env.*
+!.env.example
+*.pem
+keys/
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+
+# Web
+node_modules/
+web/dist/
+*.tsbuildinfo
+
+# Local runtime state and output
+spikes/out/
+.guardrail-hook-state/
+*.log
+
+# Editors, OS, per-user Claude Code settings
+.DS_Store
+.vscode/
+.idea/
+.claude/settings.local.json

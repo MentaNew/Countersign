@@ -1,0 +1,217 @@
+"""Build the evidence packet for one dispute. Pure function, no I/O, no LLM: what goes to PayPal
+must be traceable to records, so the narrative is a template filled from verified facts.
+
+The key judgement is matching the dispute *reason* to the evidence we actually hold. An
+authorization receipt proves what the buyer's side authorised; it does not prove delivery."""
+
+from datetime import UTC, datetime
+from decimal import Decimal
+from typing import Any
+
+# Industry figures, labelled as such wherever shown (Javelin 2026 via chargeback.io).
+INDUSTRY_COST = {
+    "avg_total_cost_usd": 128,
+    "avg_internal_labour_usd": 82,
+    "source": "Javelin 2026 via chargeback.io; industry average, not measured by this desk",
+}
+SMALL_CLAIM_USD = Decimal(25)  # below this, refunding usually costs less than contesting
+
+REASON_LABELS = {
+    "UNAUTHORISED": "Buyer says they did not authorise the payment",
+    "MERCHANDISE_OR_SERVICE_NOT_RECEIVED": "Buyer says the item was not received",
+    "MERCHANDISE_OR_SERVICE_NOT_AS_DESCRIBED": "Buyer says the item is not as described",
+    "DUPLICATE_TRANSACTION": "Buyer says they were charged twice",
+    "INCORRECT_AMOUNT": "Buyer says the amount is wrong",
+    "CREDIT_NOT_PROCESSED": "Buyer says a refund was not processed",
+    "PAYMENT_BY_OTHER_MEANS": "Buyer says they paid another way",
+    "CANCELED_RECURRING_BILLING": "Buyer says a subscription was cancelled",
+}
+
+
+def _money(m: dict | None) -> tuple[Decimal | None, str | None]:
+    if not m:
+        return None, None
+    return Decimal(m["value"]), m["currency_code"]
+
+
+def _parse_time(s: str | None) -> datetime | None:
+    return datetime.fromisoformat(s) if s else None
+
+
+def build_packet(
+    dispute: dict[str, Any],
+    receipt_check: dict[str, Any] | None,
+    fulfillment: dict[str, Any] | None = None,
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    now = now or datetime.now(UTC)
+    txn = (dispute.get("disputed_transactions") or [{}])[0]
+    reason = dispute.get("reason") or "OTHER"
+    amount, currency = _money(dispute.get("dispute_amount"))
+    gross, _ = _money(txn.get("gross_amount"))
+    due = _parse_time(dispute.get("seller_response_due_date"))
+    facts = {
+        "dispute_id": dispute.get("dispute_id"),
+        "reason": reason,
+        "reason_label": REASON_LABELS.get(reason, reason.replace("_", " ").capitalize()),
+        "stage": dispute.get("dispute_life_cycle_stage"),
+        "status": dispute.get("status"),
+        "disputed_amount": f"{amount:.2f}" if amount is not None else None,
+        "payment_amount": f"{gross:.2f}" if gross is not None else None,
+        "currency": currency,
+        "due_at": due.isoformat() if due else None,
+        "days_left": (due - now).days if due else None,
+        "capture_id": txn.get("seller_transaction_id"),
+        "invoice_number": txn.get("invoice_number"),
+        "receipt_id": txn.get("custom"),
+        "buyer": (txn.get("buyer") or {}).get("email"),
+        "items": [
+            {"sku": i.get("item_id"), "name": i.get("item_name"), "qty": i.get("item_quantity")}
+            for i in txn.get("items") or []
+        ],
+    }
+    buyer_messages = [m.get("content", "").strip() for m in dispute.get("messages") or []
+                      if m.get("posted_by") == "BUYER"]
+    requested = sorted({e.get("evidence_type") for e in dispute.get("evidences") or []
+                        if e.get("source") == "REQUESTED_FROM_SELLER" and e.get("evidence_type")})
+    available = [link["rel"] for link in dispute.get("links") or []
+                 if link.get("rel") in ("provide_evidence", "make_offer", "accept_claim")]
+
+    # --- authorization receipt: present, authentic, and about this payment?
+    checks: list[dict[str, Any]] = []
+    authorization = None
+    receipt_ok = False
+    if receipt_check and receipt_check.get("found"):
+        r = receipt_check["receipt"]
+        sig = bool(receipt_check.get("signature_valid"))
+        log_ok = bool((receipt_check.get("gateway_report") or {}).get("valid"))
+        same_purchase = r.get("purchase_id") == facts["invoice_number"]
+        same_amount = gross is not None and Decimal(r.get("total", "-1")) == gross
+        skus_r = {ln.get("sku") for ln in r.get("lines") or []}
+        skus_d = {i["sku"] for i in facts["items"] if i.get("sku")}
+        same_items = bool(skus_d) and skus_d <= skus_r
+        checks = [
+            {"name": "Receipt signature (checked by this desk with the gateway's public key)",
+             "ok": sig},
+            {"name": "Buyer gateway reports its audit log intact and the receipt anchored in it",
+             "ok": log_ok},
+            {"name": "Receipt is for this payment (purchase id matches the invoice number)",
+             "ok": same_purchase},
+            {"name": "Receipt total equals the payment amount", "ok": same_amount},
+            {"name": "Disputed items are items the buyer's side authorised", "ok": same_items},
+        ]
+        receipt_ok = all(c["ok"] for c in checks)
+        authorization = {
+            "receipt_id": r.get("receipt_id"),
+            "user_text": r.get("user_text"),
+            "lines": r.get("lines"),
+            "total": r.get("total"),
+            "currency": r.get("currency"),
+            "approved_by_human": r.get("approved_by_human"),
+            "approved_by": r.get("approved_by"),
+            "issued_at": r.get("issued_at"),
+            "intent_id": r.get("intent_id"),
+            "verify_url": receipt_check.get("verify_url"),
+            "key_id": receipt_check.get("key_id"),
+        }
+    elif facts["receipt_id"]:
+        checks = [{"name": "Authorization receipt retrievable from the buyer's gateway", "ok": False,
+                   "detail": (receipt_check or {}).get("error", "not checked")}]
+
+    has_tracking = bool(fulfillment and fulfillment.get("tracking_number"))
+    evidence = [
+        {"kind": "order_record", "label": "PayPal payment record (amount, items, buyer, time)",
+         "have": True},
+        {"kind": "authorization_receipt",
+         "label": "Buyer-side authorization receipt (signed permission + approved cart)",
+         "have": receipt_ok,
+         "detail": None if receipt_ok else ("no receipt on this payment" if not facts["receipt_id"]
+                                            else "receipt present but a check failed")},
+        {"kind": "proof_of_fulfillment", "label": "Proof of delivery (carrier + tracking number)",
+         "have": has_tracking, "detail": None if has_tracking else "add tracking to include it"},
+    ]
+
+    rec = _recommend(reason, receipt_ok, has_tracking, amount, authorization)
+    narrative = _narrative(facts, authorization, receipt_ok, fulfillment, rec)
+    return {
+        "version": 1,
+        "built_at": now.isoformat(),
+        "facts": facts,
+        "buyer_messages": buyer_messages,
+        "requested_by_paypal": requested,
+        "authorization": authorization,
+        "checks": checks,
+        "evidence": evidence,
+        "recommendation": rec,
+        "economics": {**INDUSTRY_COST, "disputed_amount": facts["disputed_amount"],
+                      "small_claim_threshold_usd": str(SMALL_CLAIM_USD)},
+        "narrative": narrative,
+        "available_actions": available,
+        "allowed_response_options": dispute.get("allowed_response_options") or {},
+    }
+
+
+def _recommend(reason: str, receipt_ok: bool, has_tracking: bool, amount: Decimal | None,
+               authorization: dict | None) -> dict[str, Any]:
+    small = amount is not None and amount <= SMALL_CLAIM_USD
+    who = None
+    if authorization:
+        who = ("a person approved this exact cart" if authorization.get("approved_by_human")
+               else "it was inside the buyer's signed spending permission")
+    if reason == "UNAUTHORISED":
+        if receipt_ok:
+            return {"action": "contest", "paypal_call": "provide_evidence", "strength": "strong",
+                    "why": [("The buyer's own payment gateway signed an authorization for this exact "
+                            f"cart: {who}."), "The signature and log anchor verify."]}
+        return {"action": "refund" if small else "review", "paypal_call":
+                "accept_claim" if small else None, "strength": "weak",
+                "why": ["No verifiable authorization record for this payment."]}
+    if reason == "MERCHANDISE_OR_SERVICE_NOT_AS_DESCRIBED" and receipt_ok:
+        return {"action": "contest", "paypal_call": "provide_evidence", "strength": "medium",
+                "why": [("The items sold are exactly the items the buyer's side authorised "
+                        f"({who})."), ("Authorization does not prove the item matched its "
+                        "description; add photos or a description if you have them.")]}
+    if reason == "MERCHANDISE_OR_SERVICE_NOT_RECEIVED":
+        why = []
+        if receipt_ok:
+            why.append("The authorization receipt shows the purchase was authorised, but it does "
+                       "not prove delivery.")
+        if has_tracking:
+            return {"action": "contest", "paypal_call": "provide_evidence", "strength": "medium",
+                    "why": [*why, "Tracking information is available as proof of fulfillment."]}
+        if small:
+            return {"action": "refund", "paypal_call": "make_offer", "strength": "n/a",
+                    "why": [*why, ("No proof of delivery, and the amount is small: refunding usually "
+                            "costs less than contesting (see economics).")]}
+        return {"action": "add_fulfillment", "paypal_call": None, "strength": "weak",
+                "why": [*why, ("PayPal needs proof of delivery. Add carrier and tracking, then "
+                        "contest.")]}
+    return {"action": "review", "paypal_call": None, "strength": "unknown",
+            "why": ["No automatic recommendation for this reason; review manually."]}
+
+
+def _narrative(facts: dict, auth: dict | None, receipt_ok: bool, fulfillment: dict | None,
+               rec: dict) -> str:
+    items = ", ".join(f"{i['qty']} x {i['name']} ({i['sku']})" for i in facts["items"]) or "n/a"
+    parts = [
+        (f"Payment {facts['capture_id']} of {facts['payment_amount']} {facts['currency']} "
+        f"(invoice {facts['invoice_number']}) for: {items}."),
+    ]
+    if auth and receipt_ok:
+        approver = (f"approved by {auth['approved_by']} for this exact cart"
+                    if auth.get("approved_by_human")
+                    else "approved automatically inside the buyer's signed spending permission")
+        lines = "; ".join(f"{ln['qty']} x {ln['title']}" for ln in auth.get("lines") or [])
+        parts.append(
+            f"The buyer's payment gateway issued authorization receipt {auth['receipt_id']} on "
+            f"{auth['issued_at'][:10]}: the buyer's request was \"{auth['user_text']}\"; the cart "
+            f"({lines}; total {auth['total']} {auth['currency']}) was {approver}. The receipt is "
+            f"signed (key {auth['key_id']}) and anchored in the gateway's tamper-evident log; it "
+            f"can be verified at {auth['verify_url']}."
+        )
+    if fulfillment and fulfillment.get("tracking_number"):
+        parts.append(f"Shipped with {fulfillment.get('carrier', 'carrier')} under tracking number "
+                     f"{fulfillment['tracking_number']}.")
+    if rec["action"] == "contest":
+        parts.append("We ask that the case be decided in the seller's favour.")
+    return " ".join(parts)[:2000]

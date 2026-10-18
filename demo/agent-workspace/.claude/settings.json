@@ -1,0 +1,38 @@
+{
+  "enabledMcpjsonServers": ["guardrail"],
+  "permissions": {
+    "allow": [
+      "mcp__guardrail__confirm_intent",
+      "mcp__guardrail__get_intent_status",
+      "mcp__guardrail__request_purchase",
+      "mcp__guardrail__get_purchase_status",
+      "mcp__guardrail__verify_receipt",
+      "mcp__guardrail__get_log",
+      "Bash(curl -s http://localhost:8100*)"
+    ],
+    "deny": [
+      "Read(../../.env)",
+      "Read(../../keys/**)",
+      "Write",
+      "Edit"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          { "type": "command", "command": "python3 \"$CLAUDE_PROJECT_DIR/../../adapters/claude/guard.py\" pre" }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "mcp__guardrail__.*",
+        "hooks": [
+          { "type": "command", "command": "python3 \"$CLAUDE_PROJECT_DIR/../../adapters/claude/guard.py\" post" }
+        ]
+      }
+    ]
+  }
+}
