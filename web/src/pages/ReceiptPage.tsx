@@ -1,9 +1,8 @@
-import { api, type Line } from '../api'
-import { Card, LineTable, Notice, Page, usePoll, when } from '../ui'
+import { api, type Line, type Mandate, type PageEvidence } from '../api'
+import GatewayProof, { type ProofData } from '../GatewayProof'
+import { Card, Notice, Page, usePoll } from '../ui'
 
-function Check({ ok, label }: { ok: boolean | undefined; label: string }) {
-  return <li className={ok ? 'pass' : 'fail'}><span className="mark">{ok ? '✓' : '✕'}</span><span className="name">{label}</span></li>
-}
+const sigState = (x?: { valid: boolean }) => (x ? (x.valid ? 'valid' : 'invalid') : 'none') as 'valid' | 'invalid' | 'none'
 
 // Public page: anyone with the receipt id (a seller, a dispute analyst) can verify it.
 export default function ReceiptPage({ id }: { id: string }) {
@@ -15,27 +14,36 @@ export default function ReceiptPage({ id }: { id: string }) {
   return (
     <Page title="Authorization receipt" kicker={<code>{id}</code>}>
       {v.valid
-        ? <Notice tone="ok"><strong>Valid.</strong> Signed by the gateway and anchored in an intact audit log.</Notice>
+        ? <Notice tone="ok"><strong>Valid.</strong> Signed by the buyer's payment gateway and anchored in its intact audit log. The four steps below are what it recorded before paying.</Notice>
         : <Notice tone="bad"><strong>Not valid.</strong> {v.reason ?? 'One of the checks below failed.'}</Notice>}
-      <Card title="Checks">
-        <ul className="checks">
-          <Check ok={v.signature_valid} label="Ed25519 signature over the receipt" />
-          <Check ok={v.log_anchor_valid} label={`Log entry #${String(r.log_seq ?? '?')} matches the hash in the receipt`} />
-          <Check ok={v.chain_valid} label={`Whole log chain re-hashes (${v.chain_entries ?? 0} entries)`} />
-        </ul>
-      </Card>
       {v.receipt && (
         <>
-          <Card title="What was authorised">
-            <dl className="facts">
-              <div><dt>User asked</dt><dd>{String(r.user_text ?? '')}</dd></div>
-              <div><dt>Merchant</dt><dd>{String(r.merchant_id ?? '')}</dd></div>
-              <div><dt>Approved</dt><dd>{r.approved_by_human ? `by ${String(r.approved_by)} (human, cart-bound token)` : 'by policy, within the signed permission'}</dd></div>
-              <div><dt>PayPal order</dt><dd>{String(r.paypal_order_id ?? '')}</dd></div>
-              <div><dt>Issued</dt><dd>{when(r.issued_at as string)}</dd></div>
-              <div><dt>Signing key</dt><dd><code>{v.key_id}</code></dd></div>
-            </dl>
-            <LineTable lines={(r.lines ?? []) as Line[]} currency={String(r.currency ?? '')} total={String(r.total ?? '0')} />
+          <Card title="How the buyer's payment gateway authorised this payment">
+            <GatewayProof d={{
+              receiptId: id,
+              userText: String(r.user_text ?? ''),
+              intentTerms: (r.intent_mandate as { terms?: Mandate } | undefined)?.terms ?? null,
+              intentApprovedAt: (r.intent_mandate as { approved_at?: string } | undefined)?.approved_at ?? null,
+              rules: (r.gateway_checks as { rules?: { name: string; passed: boolean }[] } | undefined)?.rules ?? null,
+              semantic: ((r.verdict_summary as { semantic?: ProofData['semantic'] } | undefined)?.semantic) ?? null,
+              injectionScore: (r.verdict_summary as { injection_score?: number | null } | undefined)?.injection_score ?? null,
+              decision: String(r.decision ?? ''),
+              lines: (r.lines ?? []) as Line[], total: String(r.total ?? '0'), currency: String(r.currency ?? ''),
+              approvedByHuman: Boolean(r.approved_by_human), approvedBy: String(r.approved_by ?? ''),
+              issuedAt: r.issued_at as string, paypalOrderId: String(r.paypal_order_id ?? ''),
+              intentSignature: sigState(v.user_signatures?.intent_mandate),
+              cartSignature: sigState(v.user_signatures?.cart_mandate),
+              witness: v.witness ?? null,
+              merchant: v.merchant_signature ?? null,
+              payment: v.payment_confirmation ?? null,
+              pageEvidence: (r.cart_mandate as { page_evidence?: PageEvidence } | undefined)?.page_evidence ?? null,
+              ap2: v.ap2 ?? null,
+              verification: [
+                { label: 'Signed by the gateway (Ed25519)', ok: v.signature_valid },
+                { label: `Anchored in audit log entry #${String(r.log_seq ?? '?')}`, ok: v.log_anchor_valid },
+                { label: `Audit log intact (${v.chain_entries ?? 0} entries re-hashed)`, ok: v.chain_valid },
+              ],
+            }} />
           </Card>
           <Card title="Raw receipt">
             <pre className="raw">{JSON.stringify(r, null, 2)}</pre>

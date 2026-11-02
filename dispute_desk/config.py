@@ -24,12 +24,17 @@ class DeskSettings(BaseSettings):
     # Optional: pin the gateway's signing key so a swapped key is detected.
     gateway_public_key: str = ""
 
+    # The seller's own shop (to compare the offer key in receipts with the shop's published key).
+    merchant_base_url: str = "http://localhost:8100"
     seller_password: str = "change-me-seller"
+    session_idle_minutes: int = 120
+    session_max_hours: int = 12
     desk_public_url: str = "http://localhost:8200"
     web_base_url: str = "http://localhost:5173"
     # Accept webhooks whose PayPal signature cannot be verified (PayPal's simulate-event, or
     # PAYPAL_WEBHOOK_ID not set). Such disputes are labelled unverified everywhere.
     desk_allow_unverified_webhooks: bool = False
+    log_format: str = "text"
 
 
 @lru_cache

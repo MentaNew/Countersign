@@ -10,6 +10,8 @@ export default function LogPage({ query }: { query: URLSearchParams }) {
   const log = usePoll(() => api.log(q), [intentId, purchaseId])
   const chain = usePoll(() => api.verifyLog(), [], 4000)
   const [open, setOpen] = useState<number | null>(null)
+  const anchors = usePoll(() => api.anchors(), [], 15000)
+  const [anchoring, setAnchoring] = useState(false)
 
   return (
     <Page
@@ -22,6 +24,34 @@ export default function LogPage({ query }: { query: URLSearchParams }) {
           ? <Notice tone="ok"><strong>Chain intact.</strong> All {chain.data.entries} entries re-hash to the stored values; nothing was edited or removed.</Notice>
           : <Notice tone="bad"><strong>Chain broken at entry #{chain.data.first_bad_seq}.</strong> A record was changed after it was written; receipts that depend on it no longer verify.</Notice>
       )}
+      <Card title="Outside witnesses">
+        <p className="muted small">Every few minutes the gateway sends the newest log hash to a public timestamp authority, which signs
+          “this existed at this time”. Rewriting anything before a witnessed entry, even by the gateway's operator, no longer matches.
+          Check a token yourself: <code>openssl ts -verify -digest &lt;hash&gt; -in anchor.tsr -CAfile root.pem</code>.</p>
+        {anchors.data?.length ? (
+          <div className="table-wrap">
+            <table>
+              <thead><tr><th className="num">Covers up to</th><th>Witnessed at</th><th>Authority</th><th>Hash</th><th>Token</th></tr></thead>
+              <tbody>
+                {anchors.data.slice(0, 8).map((a) => (
+                  <tr key={a.id}>
+                    <td className="num">#{a.seq}</td>
+                    <td>{when(a.gen_time)}</td>
+                    <td>{a.tsa_name}</td>
+                    <td><Hash value={a.head_hash} n={12} /></td>
+                    <td><a href={`/api/anchors/${a.id}.tsr`}>anchor-{a.id}.tsr</a></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : <p className="muted">No outside witness yet.</p>}
+        <div className="actions">
+          <button disabled={anchoring} onClick={async () => { setAnchoring(true); try { await api.anchorNow(); await anchors.refresh() } finally { setAnchoring(false) } }}>
+            {anchoring ? 'Asking the timestamp authority…' : 'Witness now'}
+          </button>
+        </div>
+      </Card>
       <Card>
         <div className="table-wrap">
           <table className="log">

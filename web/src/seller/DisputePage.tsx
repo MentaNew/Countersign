@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link } from '../router'
-import { Badge, Card, LineTable, Notice, Page, usePoll, when } from '../ui'
+import GatewayProof from '../GatewayProof'
+import { Badge, Card, Notice, Page, usePoll, when } from '../ui'
 import { desk, type DeskDispute } from './api'
 
 const ACTION_LABEL: Record<string, string> = {
@@ -14,6 +15,8 @@ const REC_HEADLINE: Record<string, (d: DeskDispute) => string> = {
   refund: (d) => `Refund ${d.amount} ${d.currency}`,
   add_fulfillment: () => 'Add proof of delivery, then contest',
   review: () => 'Review manually',
+  wait: () => 'Nothing to send: PayPal is reviewing',
+  evidence_not_accepted: (d) => `Evidence not accepted yet: refund ${d.amount} ${d.currency} or escalate`,
 }
 
 export default function DisputePage({ id }: { id: string }) {
@@ -84,6 +87,38 @@ export default function DisputePage({ id }: { id: string }) {
         {p.buyer_messages.map((m, i) => <blockquote key={i} className="quote">“{m}”</blockquote>)}
       </Card>
 
+      <Card title="How the buyer's payment gateway authorised this payment" tone={auth ? 'proof-card' : ''}>
+        {auth ? (
+          <>
+            <GatewayProof d={{
+              receiptId: auth.receipt_id, userText: auth.user_text, intentTerms: auth.intent_terms,
+              intentApprovedAt: auth.intent_approved_at, rules: auth.gateway_checks?.rules,
+              semantic: auth.semantic, injectionScore: auth.gateway_checks?.injection_score,
+              decision: auth.gateway_checks?.decision, lines: auth.lines, total: auth.total,
+              currency: auth.currency, approvedByHuman: auth.approved_by_human, approvedBy: auth.approved_by,
+              issuedAt: auth.issued_at, paypalOrderId: auth.paypal_order_id,
+              verification: p.checks.map((c) => ({ label: c.name, ok: c.ok })),
+              witness: auth.witness ?? null,
+              merchant: auth.merchant_signature ?? null,
+              pageEvidence: auth.page_evidence ?? null,
+              payment: auth.payment_confirmation ?? null,
+              ap2: auth.ap2 ?? null,
+              intentSignature: auth.intent_user_signed
+                ? (p.checks.find((c) => c.name.includes('signed the Intent Mandate'))?.ok ? 'valid' : 'invalid') : 'none',
+              cartSignature: auth.cart_user_signed
+                ? (p.checks.find((c) => c.name.includes('signed this exact cart'))?.ok ? 'valid' : 'invalid') : 'none',
+            }} />
+            <p className="muted small">Retrieved by this desk from the buyer's gateway public endpoint, using the receipt id PayPal
+              carried on the payment (<Link href={`/receipts/${auth.receipt_id}`}>{auth.receipt_id}</Link>). The signature was checked
+              here with the gateway's public key; the desk sees nothing else of the buyer's data.</p>
+          </>
+        ) : p.checks.length ? (
+          <Notice tone="bad">{p.checks[0].name}: {p.checks[0].detail}</Notice>
+        ) : (
+          <p className="muted">This payment carries no authorization receipt (an ordinary, non-agent purchase). The packet uses the payment record only.</p>
+        )}
+      </Card>
+
       <Card title="Suggested response" tone="focus">
         <div className="rec-head">
           <span className="rec-action">{(REC_HEADLINE[rec.action] ?? (() => rec.action))(d)}</span>
@@ -94,33 +129,6 @@ export default function DisputePage({ id }: { id: string }) {
           For scale: an average chargeback costs merchants about ${p.economics.avg_total_cost_usd}, of which about
           ${p.economics.avg_internal_labour_usd} is staff time ({p.economics.source}). This case is for {f.disputed_amount} {f.currency}.
         </p>
-      </Card>
-
-      <Card title="Buyer's authorization receipt">
-        {auth ? (
-          <>
-            <ul className="checks">
-              {p.checks.map((c) => (
-                <li key={c.name} className={c.ok ? 'pass' : 'fail'}>
-                  <span className="mark" aria-hidden>{c.ok ? '✓' : '✕'}</span>
-                  <span className="name">{c.name}</span>
-                </li>
-              ))}
-            </ul>
-            <dl className="facts spaced">
-              <div><dt>Buyer asked their agent</dt><dd>“{auth.user_text}”</dd></div>
-              <div><dt>Approved</dt><dd>{auth.approved_by_human ? `by ${auth.approved_by}, for this exact cart` : 'automatically, inside the buyer’s signed spending permission'}</dd></div>
-              <div><dt>Receipt</dt><dd><Link href={`/receipts/${auth.receipt_id}`}>{auth.receipt_id}</Link> · key <code>{auth.key_id}</code></dd></div>
-            </dl>
-            <LineTable lines={auth.lines} currency={auth.currency} total={auth.total} />
-            <p className="muted small">Fetched from the buyer's gateway public endpoint; the signature was checked by this desk
-              with the gateway's public key. The desk has no access to the buyer's other data.</p>
-          </>
-        ) : p.checks.length ? (
-          <Notice tone="bad">{p.checks[0].name}: {p.checks[0].detail}</Notice>
-        ) : (
-          <p className="muted">This payment carries no authorization receipt (an ordinary, non-agent purchase). The packet uses the payment record only.</p>
-        )}
       </Card>
 
       <Card title="Evidence">

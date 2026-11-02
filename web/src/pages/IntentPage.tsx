@@ -1,11 +1,13 @@
 import { useState } from 'react'
 import { api } from '../api'
+import { describeError, signApproval } from '../passkey'
 import { Link } from '../router'
 import { Badge, Card, Hash, Notice, Page, money, usePoll, when } from '../ui'
 
 export default function IntentPage({ id }: { id: string }) {
   const intent = usePoll(() => api.intent(id), [id])
   const purchases = usePoll(() => api.purchases(id), [id])
+  const keys = usePoll(() => api.passkeys(), [], 30000)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -13,10 +15,26 @@ export default function IntentPage({ id }: { id: string }) {
     setBusy(true)
     setError(null)
     try {
-      await api.decideIntent(id, approve)
+      // Approving: your device signs the exact permission (if you have a passkey).
+      const webauthn = approve ? await signApproval(() => api.intentApprovalOptions(id)) : undefined
+      await api.decideIntent(id, approve, webauthn)
       await intent.refresh()
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
+      setError(describeError(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const revoke = async () => {
+    if (!window.confirm('Cancel this permission? The agent will not be able to buy anything more under it, and carts waiting for you are cancelled.')) return
+    setBusy(true)
+    setError(null)
+    try {
+      await api.revokeIntent(id)
+      await Promise.all([intent.refresh(), purchases.refresh()])
+    } catch (e) {
+      setError(describeError(e))
     } finally {
       setBusy(false)
     }
@@ -32,7 +50,7 @@ export default function IntentPage({ id }: { id: string }) {
         <blockquote className="quote">{it.user_text}</blockquote>
       </Card>
 
-      <Card title="What you are allowing" tone={it.status === 'pending_user' ? 'focus' : ''}>
+      <Card title={<>What you are allowing <span className="proof-tag">Intent Mandate</span></>} tone={it.status === 'pending_user' ? 'focus' : ''}>
         <pre className="summary">{it.summary}</pre>
         <dl className="facts">
           <div><dt>Items</dt><dd>{m.items.map((x, i) => <div key={i}>#{i} · {x.qty} × {x.description}{x.max_unit_price && ` (≤ ${money(x.max_unit_price)} each)`}</div>)}</dd></div>
@@ -48,14 +66,24 @@ export default function IntentPage({ id }: { id: string }) {
               Once you approve, the gateway signs it and the agent can only refer to it by id.</p>
             {error && <Notice tone="bad">{error}</Notice>}
             <div className="actions">
-              <button className="primary" disabled={busy} onClick={() => decide(true)}>Approve and sign</button>
+              <button className="primary" disabled={busy} onClick={() => decide(true)}>{keys.data?.required ? 'Approve with your passkey' : 'Approve and sign'}</button>
               <button className="danger" disabled={busy} onClick={() => decide(false)}>Reject</button>
             </div>
           </>
         )}
         {it.status === 'active' && (
-          <Notice tone="ok">Approved by {it.approved_by} on {when(it.approved_at)} · signature <Hash value={it.signature} n={20} /></Notice>
+          <Notice tone="ok">Approved by {it.approved_by} on {when(it.approved_at)}
+            {it.user_signed ? ' · signed on your own device (passkey)' : ' · password session, no device signature'}
+            {' '}· gateway signature <Hash value={it.signature} n={20} /></Notice>
         )}
+        {it.status === 'active' && (
+          <div className="actions">
+            <button className="danger" disabled={busy} onClick={revoke}>Cancel this permission</button>
+            <span className="muted small">No passkey needed: taking power away is always allowed.</span>
+          </div>
+        )}
+        {it.status === 'revoked' && <Notice tone="bad">You cancelled this permission. The agent cannot buy anything more under it.</Notice>}
+        {error && it.status !== 'pending_user' && <Notice tone="bad">{error}</Notice>}
         {it.status === 'rejected' && <Notice tone="bad">You rejected this permission. The agent cannot buy anything under it.</Notice>}
       </Card>
 

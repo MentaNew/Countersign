@@ -8,6 +8,8 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
 
+from gateway.signing.passkeys import verify_user_signature  # signature math only
+
 # Industry figures, labelled as such wherever shown (Javelin 2026 via chargeback.io).
 INDUSTRY_COST = {
     "avg_total_cost_usd": 128,
@@ -133,6 +135,38 @@ def build_packet(
             {"name": "Receipt total equals the payment amount", "ok": same_amount},
             {"name": "Disputed items are items the buyer's side authorised", "ok": same_items},
         ]
+        # The buyer's own device signatures (passkeys), re-checked here from the receipt alone.
+        intent_sig = (r.get("intent_mandate") or {}).get("user_signature")
+        cart_sig = (r.get("cart_mandate") or {}).get("user_signature")
+        if intent_sig:
+            ok, _ = verify_user_signature(intent_sig, {"intent_id": r.get("intent_id")})
+            checks.append({"name": "The buyer's own device signed the Intent Mandate (passkey)",
+                           "ok": ok})
+        if cart_sig:
+            ok, _ = verify_user_signature(cart_sig, {"cart_hash": r.get("cart_hash"),
+                                                     "purchase_id": r.get("purchase_id")})
+            checks.append({"name": "The buyer's own device signed this exact cart (passkey)",
+                           "ok": ok})
+        merchant = receipt_check.get("merchant") or {}
+        if merchant.get("present"):
+            checks.append({
+                "name": f"Prices and lines were signed by the shop (key {merchant.get('key_id')})",
+                "ok": bool(merchant.get("valid"))})
+            if merchant.get("matches_published_key") is not None:
+                checks.append({"name": "That key is the shop's own published key",
+                               "ok": bool(merchant["matches_published_key"])})
+        ap2 = receipt_check.get("ap2") or {}
+        if ap2.get("present"):
+            n_ok = sum(c["ok"] for c in ap2.get("checks", []))
+            checks.append({"name": f"AP2 v0.2 Checkout and Payment Mandates verify "
+                                   f"({n_ok}/{len(ap2.get('checks', []))} dispute checks)",
+                           "ok": bool(ap2.get("valid"))})
+        witness = receipt_check.get("witness") or {}
+        if witness.get("anchored"):
+            checks.append({
+                "name": f"Witnessed by an outside timestamp authority ({witness.get('tsa_name')}, "
+                        f"{(witness.get('gen_time') or '')[:16].replace('T', ' ')} UTC)",
+                "ok": bool(witness.get("valid"))})
         receipt_ok = all(c["ok"] for c in checks)
         authorization = {
             "receipt_id": r.get("receipt_id"),
@@ -146,6 +180,19 @@ def build_packet(
             "intent_id": r.get("intent_id"),
             "verify_url": receipt_check.get("verify_url"),
             "key_id": receipt_check.get("key_id"),
+            # Present on receipts from Oct 19 on (format agent-spend-receipt/2).
+            "paypal_order_id": r.get("paypal_order_id"),
+            "intent_terms": (r.get("intent_mandate") or {}).get("terms"),
+            "intent_approved_at": (r.get("intent_mandate") or {}).get("approved_at"),
+            "gateway_checks": r.get("gateway_checks"),
+            "semantic": (r.get("verdict_summary") or {}).get("semantic"),
+            "witness": receipt_check.get("witness"),
+            "merchant_signature": receipt_check.get("merchant"),
+            "payment_confirmation": receipt_check.get("payment_confirmation"),
+            "page_evidence": (r.get("cart_mandate") or {}).get("page_evidence"),
+            "ap2": receipt_check.get("ap2"),
+            "intent_user_signed": bool(intent_sig),
+            "cart_user_signed": bool(cart_sig),
         }
     elif facts["receipt_id"]:
         checks = [{"name": "Authorization receipt retrievable from the buyer's gateway", "ok": False,
@@ -164,7 +211,30 @@ def build_packet(
          "have": has_tracking, "detail": None if has_tracking else "add tracking to include it"},
     ]
 
-    rec = _recommend(reason, receipt_ok, has_tracking, amount, authorization)
+    if available:
+        rec = _recommend(reason, receipt_ok, has_tracking, amount, authorization)
+        if rec["paypal_call"] and rec["paypal_call"] not in available:
+            # Observed Oct 19 (PP-R-FER-10193581, not as described, inquiry stage): PayPal offered
+            # refund / accept / message / escalate, but not provide_evidence.
+            offered = ", ".join(a.replace("_", " ") for a in available)
+            rec = {
+                "action": "evidence_not_accepted",
+                "paypal_call": None,
+                "strength": rec["strength"],
+                "why": [
+                    *rec["why"],
+                    (f"PayPal does not accept evidence on this case at this stage (it offers: "
+                    f"{offered}). To contest, escalate the case in PayPal so it becomes a claim; "
+                    "otherwise offer a refund."),
+                ],
+            }
+    else:
+        # Observed Oct 19 (PP-R-CGO-10193580): the case can go straight to PayPal's own review,
+        # with no seller deadline and no response options. Do not suggest an action PayPal refuses.
+        rec = {"action": "wait", "paypal_call": None, "strength": "n/a",
+               "why": [(f"PayPal is handling this case itself (status {dispute.get('status')}); "
+                       "it currently accepts no response from the seller."),
+                       "The packet is ready if PayPal asks for evidence later."]}
     narrative = _narrative(facts, authorization, receipt_ok, fulfillment, rec)
     return {
         "version": 1,
@@ -228,7 +298,8 @@ def _recommend(reason: str, receipt_ok: bool, has_tracking: bool, amount: Decima
 
 def _narrative(facts: dict, auth: dict | None, receipt_ok: bool, fulfillment: dict | None,
                rec: dict) -> str:
-    items = ", ".join(f"{i['qty']} x {i['name']} ({i['sku']})" for i in facts["items"]) or "n/a"
+    items = ", ".join(f"{i['qty']} x {i['name']}" + (f" ({i['sku']})" if i.get("sku") else "")
+                      for i in facts["items"]) or "n/a"
     parts = [
         (f"Payment {facts['capture_id']} of {facts['payment_amount']} {facts['currency']} "
         f"(invoice {facts['invoice_number']}) for: {items}."),
@@ -237,6 +308,10 @@ def _narrative(facts: dict, auth: dict | None, receipt_ok: bool, fulfillment: di
         approver = (f"approved by {auth['approved_by']} for this exact cart"
                     if auth.get("approved_by_human")
                     else "approved automatically inside the buyer's signed spending permission")
+        if auth.get("cart_user_signed"):
+            approver += ", signed on the buyer's own device (passkey)"
+        elif auth.get("intent_user_signed"):
+            approver += "; the permission itself was signed on the buyer's own device (passkey)"
         lines = "; ".join(f"{ln['qty']} x {ln['title']}" for ln in auth.get("lines") or [])
         parts.append(
             f"The buyer's payment gateway issued authorization receipt {auth['receipt_id']} on "
@@ -245,6 +320,13 @@ def _narrative(facts: dict, auth: dict | None, receipt_ok: bool, fulfillment: di
             f"signed (key {auth['key_id']}) and anchored in the gateway's tamper-evident log; it "
             f"can be verified at {auth['verify_url']}."
         )
+        sem = auth.get("semantic") or {}
+        if sem.get("match"):
+            parts.append(
+                "Before paying, the gateway checked the cart against the buyer's signed request: "
+                f"all spending rules passed and the cart matched the request with probability "
+                f"{sem['match'].get('matches', 0):.2f} ({sem.get('model', 'verifier')})."
+            )
     if fulfillment and fulfillment.get("tracking_number"):
         parts.append(f"Shipped with {fulfillment.get('carrier', 'carrier')} under tracking number "
                      f"{fulfillment['tracking_number']}.")

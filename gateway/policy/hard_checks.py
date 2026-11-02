@@ -1,5 +1,6 @@
 """Deterministic policy checks. Plain code, never an LLM: money, counts and dates live here."""
 
+import re
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime
@@ -23,9 +24,11 @@ def run_hard_checks(
     lines: list[ResolvedLine],
     state: SpendState,
     now: datetime,
+    charges: Decimal = Decimal(0),
 ) -> list[CheckResult]:
+    """`charges`: shipping and tax minus discounts, when the shop adds them at checkout."""
     cur = mandate.max_total.currency
-    total = sum((ln.line_total for ln in lines), Decimal(0))
+    total = sum((ln.line_total for ln in lines), Decimal(0)) + charges
     already = state.qty_by_item or {}
     results: list[CheckResult] = []
 
@@ -102,3 +105,21 @@ def run_hard_checks(
 
 def cart_total(lines: list[ResolvedLine]) -> Decimal:
     return sum((ln.line_total for ln in lines), Decimal(0))
+
+
+# Words that turn a one-off purchase into a repeating one (Oct 23 eval: the model read
+# "Autoship: every 4 weeks" as the same product and approved it).
+RECURRING = re.compile(
+    r"\b(auto-?ship|auto-?renew\w*|auto-?replenish\w*|subscri(?:be|ption)s?|recurring"
+    r"|every\s+\d+\s*(?:days?|weeks?|months?|years?)"
+    r"|(?:weekly|monthly|yearly|annual)\s+(?:delivery|deliveries|shipments?|subscription))\b",
+    re.IGNORECASE)
+
+
+def recurring_lines(mandate: Mandate, lines: list[ResolvedLine]) -> list[str]:
+    """Lines whose title signs the person up for repeat orders, unless what they asked for
+    already says so (e.g. "monthly subscription"). Deterministic, so it does not depend on the
+    model noticing."""
+    asked = " ".join(it.description for it in mandate.items)
+    return [ln.sku for ln in lines
+            if RECURRING.search(ln.title) and not RECURRING.search(asked)]

@@ -40,6 +40,13 @@ class Signer:
         return cls(key)
 
     @classmethod
+    def from_pem(cls, pem: bytes) -> "Signer":
+        key = serialization.load_pem_private_key(pem, password=None)
+        if not isinstance(key, Ed25519PrivateKey):
+            raise TypeError("SIGNING_KEY_PEM is not an Ed25519 private key")
+        return cls(key)
+
+    @classmethod
     def ephemeral(cls) -> "Signer":
         return cls(Ed25519PrivateKey.generate())
 

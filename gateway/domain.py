@@ -76,6 +76,38 @@ class CartLineRequest(BaseModel):
     )
 
 
+class PageLine(BaseModel):
+    """A cart line as the checkout guard read it from the shop's own cart (not signed by the shop)."""
+
+    title: str = Field(min_length=1, max_length=300)
+    unit_price: Money
+    qty: int = Field(gt=0, le=10_000)
+    product_url: str | None = Field(default=None, max_length=500)
+    variant: str | None = Field(default=None, max_length=200)
+    item: int | None = Field(default=None, description="Index of the mandate item it fulfils")
+
+
+class PageCart(BaseModel):
+    """A cart read from a normal shop's checkout by the checkout guard, for shops that do not
+    sign carts. The gateway treats it as weaker evidence: it always needs the user's passkey."""
+
+    shop_url: str = Field(max_length=300, description="The shop's address, e.g. https://shop.example")
+    page_url: str = Field(max_length=1000, description="Checkout page the totals were read from")
+    lines: list[PageLine] = Field(min_length=1, max_length=50)
+    shipping: Money | None = None
+    tax: Money | None = None
+    discount: Money | None = None
+    total: Money
+    reader: str = Field(max_length=60, description="How the guard read it, e.g. shopify-cart-json")
+    screenshot_png_b64: str | None = Field(default=None, max_length=4_000_000)
+    page_text_sha256: str | None = Field(default=None, max_length=64)
+
+    def charges(self) -> Decimal:
+        """Shipping and tax minus discounts, in the cart currency."""
+        add = sum((m.amount for m in (self.shipping, self.tax) if m), Decimal(0))
+        return add - (self.discount.amount if self.discount else Decimal(0))
+
+
 class ResolvedLine(BaseModel):
     """A cart line after the gateway looked it up in the merchant catalog."""
 
@@ -101,6 +133,8 @@ class SemanticVerdict(BaseModel):
     extra_items: float = Field(ge=0, le=1)
     model: str
     rationale: str = ""
+    # SKUs of lines the verifier judged not to be what the user asked for (shown in red).
+    flagged_skus: list[str] = []
 
 
 class InjectionVerdict(BaseModel):

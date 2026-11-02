@@ -1,7 +1,7 @@
 // Client for the seller-side dispute desk (a separate server, proxied at /desk).
 // Its login token is separate from the buyer's.
 
-import type { Line } from '../api'
+import type { Line, Mandate, PageEvidence, PaymentConfirmation } from '../api'
 
 export type DeskSummary = {
   dispute_id: string
@@ -52,6 +52,18 @@ export type Packet = {
     intent_id: string
     verify_url: string
     key_id: string
+    paypal_order_id?: string | null
+    intent_terms?: Mandate | null
+    intent_approved_at?: string | null
+    gateway_checks?: { rules: { name: string; passed: boolean }[]; injection_score?: number | null; decision?: string } | null
+    semantic?: { match: { matches: number; partial: number; mismatch: number }; model: string; rationale?: string } | null
+    ap2?: { present: boolean; valid: boolean | null; checks: { name: string; ok: boolean }[]; spec?: string; not_implemented?: string[]; has_payment_receipt?: boolean } | null
+    page_evidence?: PageEvidence | null
+    payment_confirmation?: PaymentConfirmation | null
+    merchant_signature?: { present: boolean; valid: boolean | null; key_id?: string; detail?: string; matches_published_key?: boolean | null } | null
+    witness?: { anchored: boolean; valid: boolean | null; gen_time?: string; tsa_name?: string; detail?: string } | null
+    intent_user_signed?: boolean
+    cart_user_signed?: boolean
   } | null
   checks: { name: string; ok: boolean; detail?: string }[]
   evidence: { kind: string; label: string; have: boolean; detail?: string | null }[]
@@ -74,32 +86,32 @@ export type DeskDispute = DeskSummary & {
   actions: { kind: string; by: string; ok: boolean; at: string; request: unknown; response: unknown }[]
 }
 
-const TOKEN_KEY = 'desk.token'
+// Seller sign-in lives in an HttpOnly cookie (path /desk) set by the desk: scripts never see it.
+let sellerAuthed: boolean | null = null
 
-export function getSellerToken(): string | null {
-  try {
-    return localStorage.getItem(TOKEN_KEY)
-  } catch {
-    return null
-  }
+export function getSellerAuth(): boolean | null {
+  return sellerAuthed
 }
 
-export function setSellerToken(token: string | null) {
-  try {
-    if (token) localStorage.setItem(TOKEN_KEY, token)
-    else localStorage.removeItem(TOKEN_KEY)
-  } catch {
-    /* storage unavailable */
-  }
+export function setSellerAuth(v: boolean) {
+  if (v === sellerAuthed) return
+  sellerAuthed = v
   window.dispatchEvent(new Event('desk-auth'))
 }
 
+try {
+  localStorage.removeItem('desk.token') // tokens from before Nov 2 are no longer used
+} catch {
+  /* storage unavailable */
+}
+
 async function call<T>(method: string, path: string, body?: unknown): Promise<T> {
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
-  const token = getSellerToken()
-  if (token) headers.Authorization = `Bearer ${token}`
-  const res = await fetch(`/desk/api${path}`, { method, headers, body: body ? JSON.stringify(body) : undefined })
-  if (res.status === 401 && path !== '/login') setSellerToken(null)
+  // The extra header proves the request comes from this app (blocks cross-site requests).
+  const headers: Record<string, string> = { 'Content-Type': 'application/json', 'X-Guardrail-Request': '1' }
+  const res = await fetch(`/desk/api${path}`, {
+    method, headers, credentials: 'same-origin', body: body ? JSON.stringify(body) : undefined,
+  })
+  if (res.status === 401 && path !== '/login') setSellerAuth(false)
   if (!res.ok) {
     let detail = res.statusText
     try {
@@ -112,8 +124,18 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<T>
   return res.json() as Promise<T>
 }
 
+export async function checkSellerSession() {
+  try {
+    await call('GET', '/session')
+    setSellerAuth(true)
+  } catch {
+    setSellerAuth(false)
+  }
+}
+
 export const desk = {
-  login: (password: string) => call<{ token: string }>('POST', '/login', { password }),
+  login: (password: string) => call<{ user: string }>('POST', '/login', { password }),
+  logout: () => call<{ ok: boolean }>('POST', '/logout'),
   list: () => call<DeskSummary[]>('GET', '/disputes'),
   get: (id: string) => call<DeskDispute>('GET', `/disputes/${id}`),
   importCase: (dispute_id: string) => call<DeskDispute>('POST', '/disputes/import', { dispute_id }),

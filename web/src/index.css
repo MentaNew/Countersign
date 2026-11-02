@@ -240,3 +240,56 @@ textarea {
 }
 textarea:focus { outline: 2px solid var(--focus); outline-offset: 2px; }
 .confirm { display: flex; gap: 8px; align-items: center; }
+
+/* gateway proof: the four-step authorization story */
+.card.proof-card { border-color: var(--accent); }
+.proof-lede { margin: 0 0 14px; }
+.proof-steps { list-style: none; margin: 0; padding: 0; }
+.proof-step { display: grid; grid-template-columns: 28px minmax(0, 1fr); gap: 12px; position: relative; padding-bottom: 18px; }
+.proof-step:not(:last-child)::before { content: ''; position: absolute; left: 13px; top: 28px; bottom: 0; width: 2px; background: var(--border); }
+.proof-n { width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; font-weight: 700; font-size: 0.85rem; background: var(--accent); color: var(--accent-text); }
+.proof-body h3 { margin: 3px 0 8px; }
+.proof-body p { margin: 6px 0; }
+.proof-tag { font-size: 0.7rem; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: var(--accent); border: 1px solid currentColor; border-radius: 999px; padding: 1px 7px; }
+.chips { list-style: none; padding: 0; margin: 8px 0; display: flex; flex-wrap: wrap; gap: 6px; }
+.chips li { background: var(--surface-2); border: 1px solid var(--border); border-radius: 999px; padding: 2px 10px; font-size: 0.85rem; }
+.match { display: grid; grid-template-columns: auto minmax(80px, 1fr) auto auto; gap: 10px; align-items: center; margin: 8px 0; }
+.match-label { font-weight: 600; }
+@media (max-width: 640px) { .match { grid-template-columns: 1fr auto; } .match .bar { grid-column: 1 / -1; } }
+.device-sig { margin: 8px 0; padding: 6px 10px; border-radius: 8px; font-size: 0.9rem; }
+.device-sig.ok { background: var(--ok-bg); }
+.device-sig.bad { background: var(--bad-bg); }
+.device-sig.none { background: var(--surface-2); color: var(--muted); }
+.device-sig.ap2 summary { cursor: pointer; }
+.device-sig.ap2 .checks { margin-top: 8px; }
+
+code.secret { word-break: break-all; user-select: all; }
+.page-shot { display: block; max-width: 100%; height: auto; border: 1px solid var(--border, #ccc); border-radius: 8px; }
+button.link.danger { color: var(--bad); }
+.login .or { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 13px; margin: 4px 0; }
+.login .or::before, .login .or::after { content: ""; flex: 1; border-top: 1px solid var(--border); }
+.model-replies { margin-top: 16px; border-top: 1px solid var(--border); padding-top: 12px; }
+.model-replies summary { cursor: pointer; font-weight: 600; }
+.exchange { margin-top: 12px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; }
+.exchange-head { font-size: 13px; color: var(--muted); margin-bottom: 6px; }
+.exchange .label { font-size: 12px; font-weight: 600; color: var(--muted); margin-top: 8px; text-transform: uppercase; letter-spacing: .03em; }
+.exchange pre { white-space: pre-wrap; word-break: break-word; font-size: 12.5px; margin: 4px 0 0; max-height: 240px; overflow: auto; }
+.nav-links .count { display: inline-block; min-width: 18px; padding: 0 5px; margin-left: 5px; border-radius: 9px; background: var(--bad); color: #fff; font-size: 11px; line-height: 18px; text-align: center; font-weight: 700; vertical-align: 1px; }
+.checklist { list-style: none; margin: 0; padding: 0; }
+.checklist li { display: flex; gap: 12px; align-items: flex-start; padding: 12px 0; border-top: 1px solid var(--border); }
+.checklist li:first-child { border-top: none; padding-top: 4px; }
+.checklist .check-dot { flex: none; width: 20px; height: 20px; border-radius: 50%; border: 2px solid var(--border); display: grid; place-items: center; font-size: 12px; font-weight: 700; margin-top: 1px; box-sizing: border-box; }
+.checklist li.done .check-dot { background: var(--ok); border-color: var(--ok); color: #fff; }
+.checklist .row-main { flex: 1; }
+.checklist li.done .row-main { color: var(--muted); }
+.checklist .row-meta { flex: none; }
+.row-main .badge { align-self: flex-start; }
+@media (max-width: 640px) {
+  .hide-sm { display: none; }
+  nav.top { gap: 8px; }
+  nav.top .brand span { display: none; }
+  .nav-links { overflow-x: auto; gap: 14px; white-space: nowrap; scrollbar-width: none; }
+  .checklist li { flex-wrap: wrap; }
+  .checklist .row-meta { flex-basis: 100%; padding-left: 32px; }
+}
+.checklist button.link { color: var(--accent); }

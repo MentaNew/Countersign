@@ -1,0 +1,7 @@
+{
+ "score": 0.1,
+ "per_text": [
+  0.1
+ ],
+ "model": "groq:meta-llama/llama-prompt-guard-2-86m+openai/gpt-oss-20b"
+}

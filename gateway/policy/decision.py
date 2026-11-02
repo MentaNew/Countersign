@@ -36,6 +36,9 @@ def decide(
                 )
             if semantic.extra_items > t.max_extra_items:
                 reasons.append(f"cart may contain unrequested items (P={semantic.extra_items:.2f})")
+            if semantic.flagged_skus:
+                reasons.append("lines that do not look like what was requested: "
+                               + ", ".join(semantic.flagged_skus))
         if injection and injection.score > t.max_injection:
             reasons.append(
                 f"merchant text the agent used looks like instructions to it (score={injection.score:.2f})"

@@ -9,6 +9,8 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncEngine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
+from gateway.db.models import SessionColumns
+
 SCHEMA = "desk"
 JsonCol = JSON().with_variant(JSONB(), "postgresql")
 
@@ -78,3 +80,9 @@ async def create_desk_schema(engine: AsyncEngine, drop: bool = False) -> None:
         if drop:
             await conn.run_sync(Base.metadata.drop_all)
         await conn.run_sync(Base.metadata.create_all)
+
+
+class SellerSession(SessionColumns, Base):
+    """Seller staff sign-ins (same rules as the buyer's: hashed token, idle and maximum age)."""
+
+    __tablename__ = "seller_sessions"

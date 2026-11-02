@@ -255,6 +255,17 @@ Evidence it is real: in F-Secure's test (one model, 100 runs) a planted fake-dis
 
 The receipt ID is attached to the PayPal order as `custom_id` (accepted at order creation, verified Oct 16) and the purchase id as `invoice_id`.
 
+**Receipt format 2 (Oct 19), AP2-aligned naming.** Receipts now carry three named sections, so a seller or a judge can map them to Google's AP2 vocabulary:
+
+| Receipt section | Meaning | AP2 counterpart |
+|---|---|---|
+| `intent_mandate` | the buyer's words, the signed terms (items, budget, merchants, ask-me amount, expiry), who approved and when, the gateway signature | Intent Mandate |
+| `cart_mandate` | cart hash, merchant, exact lines and total, approved by policy or by a person for this exact cart | Cart Mandate |
+| `gateway_checks` | each spending rule and its result, cart-to-request match, injection score, thresholds, decision | (no AP2 counterpart: this is the enforcement) |
+| `paypal_order_id`, `log_seq`, `log_hash`, signature | the payment and its tamper-evident anchor | close to a Payment Mandate |
+
+Update Oct 21: receipts now also carry **real AP2 v0.2 objects** (AP2 v0.2 replaced Intent/Cart Mandates with SD-JWT Checkout and Payment Mandates): open and closed Checkout/Payment Mandates, the merchant's ES256 Checkout JWT and a Payment Receipt, verified with AP2's dispute rules by the gateway and the seller's desk. Not implemented: delegate SD-JWT key binding, selective disclosure, merchant-issued Checkout Receipts (see `docs/production-plan.md`). The flat fields of format 1 are kept, so older receipts still verify and display. The seller's dispute page and the public receipt page show these sections as a four-step story ("what the buyer asked, what the gateway checked, what was approved, payment and proof"). Every dispute reason and the seller and PayPal options for each: `docs/dispute-playbook.md`.
+
 ### 3.10 Dispute desk
 
 - **Where it runs:** a separate **seller-side** service (`dispute_desk/`, its own port, its own `desk` schema and its own seller screens). It never reads the gateway's tables; it gets the buyer's proof through the public receipt endpoint, using the receipt id found in the order's `custom_id`.

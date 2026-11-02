@@ -5,27 +5,29 @@
 Doors: /desk/api (seller staff, own login), /webhooks/paypal (PayPal servers)."""
 
 import contextlib
-import hashlib
-import hmac
 import secrets
+from datetime import timedelta
 
-from fastapi import Depends, FastAPI, HTTPException, Request
-from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from dispute_desk.config import DeskSettings, get_desk_settings
-from dispute_desk.models import create_desk_schema
+from dispute_desk.models import SellerSession, create_desk_schema
 from dispute_desk.paypal import DisputesClient
-from dispute_desk.receipts import GatewayReceipts
+from dispute_desk.receipts import GatewayReceipts, http_shop_keys
 from dispute_desk.service import Desk, DeskError, NotFound
+from gateway.hosting import (
+    RateLimit,
+    SecurityHeaders,
+    db_url,
+    refuse_placeholders,
+    setup_logging,
+)
+from gateway.logins import LoginSessions, make_session_dependency
 
 SELLER = "seller-staff"
-_bearer = HTTPBearer(auto_error=False)
-
-
-def seller_token(password: str) -> str:
-    return hmac.new(password.encode(), b"dispute-desk-seller-session", hashlib.sha256).hexdigest()
+DESK_COOKIE = "desk_session"
 
 
 class Login(BaseModel):
@@ -51,7 +53,8 @@ def build_desk(s: DeskSettings, sessions, **overrides) -> Desk:
     paypal = (DisputesClient(s.paypal_base_url, s.paypal_client_id, s.paypal_client_secret)
               if s.paypal_client_id and s.paypal_client_secret else None)
     kw = {"sessions": sessions, "paypal": paypal,
-          "receipts": GatewayReceipts(s.gateway_public_url, s.gateway_public_key),
+          "receipts": GatewayReceipts(s.gateway_public_url, s.gateway_public_key,
+                                      shop_keys=http_shop_keys(s.merchant_base_url)),
           "webhook_id": s.paypal_webhook_id,
           "allow_unverified_webhooks": s.desk_allow_unverified_webhooks}
     kw.update(overrides)
@@ -60,16 +63,15 @@ def build_desk(s: DeskSettings, sessions, **overrides) -> Desk:
 
 def create_desk_app(s: DeskSettings | None = None, engine=None, **overrides) -> FastAPI:
     s = s or get_desk_settings()
-    engine = engine or create_async_engine(s.database_url, pool_pre_ping=True)
+    setup_logging(s.log_format)
+    refuse_placeholders(s.desk_public_url, seller_password=s.seller_password)
+    engine = engine or create_async_engine(db_url(s.database_url), pool_pre_ping=True)
     desk = build_desk(s, async_sessionmaker(engine, expire_on_commit=False), **overrides)
-    expected = seller_token(s.seller_password)
-
-    def require_seller(cred: HTTPAuthorizationCredentials | None = Depends(_bearer)) -> str:
-        if not cred or not secrets.compare_digest(cred.credentials, expected):
-            raise HTTPException(401, "seller login required")
-        return SELLER
-
-    seller = Depends(require_seller)
+    sessions = async_sessionmaker(engine, expire_on_commit=False)
+    logins = LoginSessions(sessions, timedelta(minutes=s.session_idle_minutes),
+                           timedelta(hours=s.session_max_hours), model=SellerSession)
+    seller = Depends(make_session_dependency(logins, cookie=DESK_COOKIE))
+    secure_cookie = s.web_base_url.startswith("https://")
 
     async def run(coro):
         try:
@@ -86,16 +88,36 @@ def create_desk_app(s: DeskSettings | None = None, engine=None, **overrides) -> 
 
     app = FastAPI(title="Dispute desk (seller side)", lifespan=lifespan)
     app.state.desk = desk
+    app.add_middleware(SecurityHeaders, hsts=s.desk_public_url.startswith("https://"))
+    app.add_middleware(RateLimit, rules=[("/desk/api/login", 10, 60, 60.0),
+                                         ("/webhooks/", 60, 600, 60.0),
+                                         ("/desk/api/", 300, 3000, 60.0)])
 
     @app.get("/health")
     def health():
         return {"status": "ok"}
 
     @app.post("/desk/api/login")
-    async def login(body: Login):
-        if not secrets.compare_digest(body.password, s.seller_password):
+    async def login(body: Login, request: Request, response: Response):
+        if not secrets.compare_digest(body.password.encode(), s.seller_password.encode()):
             raise HTTPException(401, "wrong password")
-        return {"token": expected, "user": SELLER}
+        token, row = await logins.create(SELLER, "password", request.headers.get("user-agent"),
+                                         request.client.host if request.client else None)
+        # Cookie limited to /desk: the buyer's and the seller's sign-ins never mix.
+        response.set_cookie(DESK_COOKIE, token, httponly=True, secure=secure_cookie,
+                            samesite="strict", path="/desk",
+                            max_age=int(logins.max_age.total_seconds()))
+        return {"token": token, "user": SELLER, "session_id": row.id}
+
+    @app.get("/desk/api/session")
+    async def session(who: str = seller):
+        return {"user": who}
+
+    @app.post("/desk/api/logout")
+    async def logout(request: Request, response: Response, who: str = seller):
+        await logins.end(request.state.session_id, who)
+        response.delete_cookie(DESK_COOKIE, path="/desk")
+        return {"ok": True}
 
     @app.get("/desk/api/disputes")
     async def disputes(_: str = seller):

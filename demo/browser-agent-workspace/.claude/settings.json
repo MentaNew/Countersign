@@ -1,0 +1,26 @@
+{
+  "enabledMcpjsonServers": ["checkout-guard"],
+  "permissions": {
+    "allow": [
+      "mcp__checkout-guard__confirm_intent",
+      "mcp__checkout-guard__get_intent_status",
+      "mcp__checkout-guard__open_page",
+      "mcp__checkout-guard__page_snapshot",
+      "mcp__checkout-guard__click",
+      "mcp__checkout-guard__type_text",
+      "mcp__checkout-guard__choose",
+      "mcp__checkout-guard__checkout_ready",
+      "mcp__checkout-guard__wait_for_approval",
+      "mcp__checkout-guard__confirm_payment"
+    ],
+    "deny": [
+      "Bash",
+      "WebFetch",
+      "Read(../../**)",
+      "Read(~/**)",
+      "Write",
+      "Edit",
+      "NotebookEdit"
+    ]
+  }
+}

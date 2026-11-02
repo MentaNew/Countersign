@@ -53,9 +53,12 @@ class FakePayPal:
 
         if self.fail:
             raise PayPalError(422, {"name": "UNPROCESSABLE_ENTITY", "message": "test failure"})
+        oid = f"PP{len(self.orders) + 1:05d}"
         order = {
-            "id": f"PP{len(self.orders) + 1:05d}",
+            "id": oid,
             "status": self.status,
+            "purchase_units": [{"payments": {"captures": [{"id": f"CAP-{oid}"}]}}]
+            if self.status == "COMPLETED" else [],
             "custom_id": custom_id,
             "invoice_id": invoice_id,
             "lines": [ln.sku for ln in lines],

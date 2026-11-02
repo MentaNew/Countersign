@@ -1,0 +1,157 @@
+# Render Blueprint: the whole project on Render's free plan.
+# Guide: docs/deploy-render.md. Secrets (sync: false) are asked for when you create the Blueprint;
+# generate them with `uv run python scripts/render_secrets.py`.
+#
+# If Render adds a suffix to a service's URL because the name is taken, update the URLs below
+# (and the web app's rewrite rules) to the real ones, then redeploy.
+
+databases:
+  - name: spend-guardrail-db
+    plan: free            # expires 30 days after creation (Render's free rule)
+    region: oregon
+    databaseName: guardrail
+    user: guardrail
+
+services:
+  # Gateway: MCP for agents at /mcp, REST for the web app at /api.
+  - type: web
+    name: spend-guardrail-gw
+    runtime: python
+    plan: free
+    region: oregon
+    buildCommand: pip install uv && uv sync --frozen --no-dev
+    startCommand: .venv/bin/uvicorn gateway.main:app --host 0.0.0.0 --port $PORT --proxy-headers
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.7
+      - key: FORWARDED_ALLOW_IPS   # trust Render's proxy for the client address (rate limits)
+        value: "*"
+      - key: LOG_FORMAT
+        value: json
+      - key: SESSION_IDLE_MINUTES     # sign-in ends after this much inactivity
+        value: "60"
+      - key: SESSION_MAX_HOURS
+        value: "12"
+      - key: DATABASE_URL
+        fromDatabase: { name: spend-guardrail-db, property: connectionString }
+      - key: PUBLIC_BASE_URL
+        value: https://spend-guardrail-gw.onrender.com
+      - key: WEB_BASE_URL
+        value: https://spend-guardrail.onrender.com
+      - key: WEBAUTHN_RP_ID          # passkeys belong to the web app's address
+        value: spend-guardrail.onrender.com
+      - key: MERCHANT_BASE_URL
+        value: https://spend-guardrail-shops.onrender.com
+      - key: PAYPAL_BASE_URL
+        value: https://api-m.sandbox.paypal.com
+      - key: VERIFIER                # stub = offline word overlap; llm = GroqCloud (needs key)
+        value: stub
+      - key: SIGNING_KEY_PEM
+        sync: false
+      - key: AP2_SIGNING_KEY_PEM
+        sync: false
+      - key: AGENT_API_KEY
+        sync: false
+      - key: USER_PASSWORD
+        sync: false
+      - key: PAYPAL_CLIENT_ID
+        sync: false
+      - key: PAYPAL_CLIENT_SECRET
+        sync: false
+      - key: PAYPAL_VAULT_ID
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false
+
+  # Dispute desk (seller side): its own login; PayPal webhooks arrive at /webhooks/paypal.
+  - type: web
+    name: spend-guardrail-desk
+    runtime: python
+    plan: free
+    region: oregon
+    buildCommand: pip install uv && uv sync --frozen --no-dev
+    startCommand: .venv/bin/uvicorn dispute_desk.app:app --host 0.0.0.0 --port $PORT --proxy-headers
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.7
+      - key: FORWARDED_ALLOW_IPS
+        value: "*"
+      - key: LOG_FORMAT
+        value: json
+      - key: DATABASE_URL
+        fromDatabase: { name: spend-guardrail-db, property: connectionString }
+      - key: GATEWAY_PUBLIC_URL
+        value: https://spend-guardrail-gw.onrender.com
+      - key: MERCHANT_BASE_URL
+        value: https://spend-guardrail-shops.onrender.com
+      - key: DESK_PUBLIC_URL
+        value: https://spend-guardrail-desk.onrender.com
+      - key: WEB_BASE_URL
+        value: https://spend-guardrail.onrender.com
+      - key: PAYPAL_BASE_URL
+        value: https://api-m.sandbox.paypal.com
+      - key: SELLER_PASSWORD
+        sync: false
+      - key: PAYPAL_CLIENT_ID
+        sync: false
+      - key: PAYPAL_CLIENT_SECRET
+        sync: false
+      - key: PAYPAL_WEBHOOK_ID       # after registering the webhook (see the guide)
+        sync: false
+
+  # Demo shops: catalogs, product pages, signed cart offers.
+  - type: web
+    name: spend-guardrail-shops
+    runtime: python
+    plan: free
+    region: oregon
+    buildCommand: pip install uv && uv sync --frozen --no-dev
+    startCommand: .venv/bin/uvicorn demo.merchant.app:app --host 0.0.0.0 --port $PORT --proxy-headers
+    healthCheckPath: /
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.7
+      - key: MERCHANT_BASE_URL
+        value: https://spend-guardrail-shops.onrender.com
+      - key: MERCHANT_KEY_SEED
+        sync: false
+
+  # Web app (the human's screen). Same address for /api and /desk, so no cross-site requests.
+  - type: web
+    name: spend-guardrail
+    runtime: static
+    rootDir: web
+    buildCommand: npm ci && npm run build
+    staticPublishPath: dist
+    # Only this app's own scripts run; nothing can frame the approval screens.
+    headers:
+      - path: /*
+        name: Content-Security-Policy
+        value: "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'"
+      - path: /*
+        name: X-Frame-Options
+        value: DENY
+      - path: /*
+        name: X-Content-Type-Options
+        value: nosniff
+      - path: /*
+        name: Referrer-Policy
+        value: no-referrer
+      - path: /*
+        name: Strict-Transport-Security
+        value: max-age=31536000
+    routes:
+      - type: rewrite
+        source: /api/*
+        destination: https://spend-guardrail-gw.onrender.com/api/*
+      - type: rewrite
+        source: /paypal/*
+        destination: https://spend-guardrail-gw.onrender.com/paypal/*
+      - type: rewrite
+        source: /desk/*
+        destination: https://spend-guardrail-desk.onrender.com/desk/*
+      - type: rewrite
+        source: /*
+        destination: /index.html

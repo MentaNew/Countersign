@@ -8,7 +8,8 @@ from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from pydantic import Field
 
-from gateway.domain import CartLineRequest, Mandate, MandateItem, Money
+from gateway.api.auth import current_agent
+from gateway.domain import CartLineRequest, Mandate, MandateItem, Money, PageCart
 from gateway.service import Gateway, GatewayError
 
 INSTRUCTIONS = """Payment gateway for agent purchases. Workflow:
@@ -52,7 +53,7 @@ def create_mcp(gw: Gateway) -> MCPServer:
                               max_purchases=max_purchases)
         except ValueError as e:
             raise ToolError(f"invalid intent: {e}") from e
-        return await guarded(gw.confirm_intent(user_text, mandate))
+        return await guarded(gw.confirm_intent(user_text, mandate, current_agent.get()))
 
     @mcp.tool()
     async def get_intent_status(
@@ -61,7 +62,7 @@ def create_mcp(gw: Gateway) -> MCPServer:
                                     "for the user to decide"),
     ) -> dict[str, Any]:
         """Status of an intent: pending_user, active, rejected."""
-        return await guarded(gw.wait_intent(intent_id, wait_seconds))
+        return await guarded(gw.wait_intent(intent_id, wait_seconds, current_agent.get()))
 
     @mcp.tool()
     async def request_purchase(
@@ -77,7 +78,31 @@ def create_mcp(gw: Gateway) -> MCPServer:
         ),
     ) -> dict[str, Any]:
         """Ask the gateway to buy this cart. Returns decision approve / block / escalate."""
-        return await guarded(gw.request_purchase(intent_id, merchant_id, lines, context_texts))
+        return await guarded(gw.request_purchase(intent_id, merchant_id, lines, context_texts,
+                                                   current_agent.get()))
+
+    @mcp.tool()
+    async def submit_page_cart(
+        intent_id: str,
+        cart: PageCart = Field(description="The cart as read from the shop's checkout"),
+        context_texts: list[str] = Field(default_factory=list,
+                                         description="Merchant text the agent relied on"),
+    ) -> dict[str, Any]:
+        """For the checkout guard only (browser agents): submit a cart read from a normal shop's
+        checkout. Always held for the user's passkey approval."""
+        return await guarded(gw.request_page_purchase(intent_id, cart, current_agent.get(),
+                                                      context_texts))
+
+    @mcp.tool()
+    async def confirm_page_payment(
+        purchase_id: str,
+        paypal_order_id: str = Field(description="The PayPal order id PayPal returned with"),
+        page_url: str = Field(description="The shop page PayPal sent the person back to"),
+        page_text_sha256: str | None = None,
+    ) -> dict[str, Any]:
+        """For the checkout guard only: record the payment made at the shop's own checkout."""
+        return await guarded(gw.confirm_page_payment(purchase_id, paypal_order_id, page_url,
+                                                     current_agent.get(), page_text_sha256))
 
     @mcp.tool()
     async def get_purchase_status(
@@ -86,7 +111,7 @@ def create_mcp(gw: Gateway) -> MCPServer:
                                     "for the user's decision on an escalated cart"),
     ) -> dict[str, Any]:
         """Status of a purchase request."""
-        return await guarded(gw.wait_purchase(purchase_id, wait_seconds))
+        return await guarded(gw.wait_purchase(purchase_id, wait_seconds, current_agent.get()))
 
     @mcp.tool()
     async def verify_receipt(receipt_id: str) -> dict[str, Any]:
@@ -95,7 +120,7 @@ def create_mcp(gw: Gateway) -> MCPServer:
 
     @mcp.tool()
     async def get_log(intent_id: str) -> list[dict[str, Any]]:
-        """Read-only audit log entries for one intent."""
-        return await guarded(gw.get_log(intent_id=intent_id))
+        """Read-only audit log entries for one of your intents."""
+        return await guarded(gw.agent_log(intent_id, current_agent.get()))
 
     return mcp

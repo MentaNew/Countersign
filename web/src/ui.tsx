@@ -24,6 +24,9 @@ export function usePoll<T>(load: () => Promise<T>, deps: unknown[], intervalMs =
   return { data, error, refresh }
 }
 
+export const pageCharges = (e: { shipping?: Money | null; tax?: Money | null; discount?: Money | null } | null | undefined) =>
+  e ? [{ label: 'Shipping', amount: e.shipping }, { label: 'Tax', amount: e.tax }, { label: 'Discount', amount: e.discount }] : []
+
 export const money = (m: Money | { amount: string | number; currency: string }) =>
   `${Number(m.amount).toFixed(2)} ${m.currency}`
 
@@ -31,20 +34,21 @@ export const when = (iso: string | null | undefined) =>
   iso ? new Date(iso).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }) : '—'
 
 const STATUS_TONE: Record<string, string> = {
-  approve: 'ok', active: 'ok', ordered: 'ok', captured: 'ok', authorized: 'ok',
+  approve: 'ok', active: 'ok', revoked: 'bad', stopped: 'bad', ordered: 'ok', captured: 'ok', authorized: 'ok',
   escalate: 'warn', pending_user: 'warn', pending_approval: 'warn',
-  block: 'bad', blocked: 'bad', rejected: 'bad', failed: 'bad', approval_expired: 'bad',
+  block: 'bad', blocked: 'bad', rejected: 'bad', failed: 'bad', approval_expired: 'bad', cancelled: 'neutral',
+  payment_reported: 'warn',
   // seller side
   verified: 'ok', contest: 'ok', 'evidence strong': 'ok', RESOLVED: 'ok',
   WAITING_FOR_SELLER_RESPONSE: 'warn', add_fulfillment: 'warn', 'evidence medium': 'warn',
-  UNDER_REVIEW: 'neutral', WAITING_FOR_BUYER_RESPONSE: 'neutral', refund: 'neutral', review: 'neutral',
+  UNDER_REVIEW: 'neutral', WAITING_FOR_BUYER_RESPONSE: 'neutral', refund: 'neutral', review: 'neutral', wait: 'neutral', evidence_not_accepted: 'warn',
   simulated: 'warn', unverified: 'bad', 'evidence weak': 'bad',
 }
 
 const STATUS_LABEL: Record<string, string> = {
   pending_user: 'awaiting you', pending_approval: 'awaiting you', approve: 'approved',
   escalate: 'escalated', block: 'blocked', ordered: 'order created', captured: 'paid',
-  approval_expired: 'approval expired',
+  approval_expired: 'approval expired', revoked: 'cancelled', payment_reported: 'paid (reported)',
   WAITING_FOR_SELLER_RESPONSE: 'your response needed', WAITING_FOR_BUYER_RESPONSE: 'waiting for buyer',
   UNDER_REVIEW: 'PayPal reviewing', RESOLVED: 'resolved', add_fulfillment: 'add delivery proof',
   contest: 'contest', refund: 'refund',
@@ -89,7 +93,11 @@ export function Hash({ value, n = 12 }: { value: string | null | undefined; n?: 
   return <code className="hash" title={value}>{value.slice(0, n)}…</code>
 }
 
-export function LineTable({ lines, currency, total }: { lines: Line[]; currency: string; total: string }) {
+export function LineTable({ lines, currency, total, flagged = [], charges = [] }: {
+  lines: Line[]; currency: string; total: string; flagged?: string[]
+  /** Shipping, tax, discount added by the shop at checkout. */
+  charges?: { label: string; amount: Money | null | undefined }[]
+}) {
   return (
     <div className="table-wrap">
       <table className="lines">
@@ -98,10 +106,13 @@ export function LineTable({ lines, currency, total }: { lines: Line[]; currency:
         </thead>
         <tbody>
           {lines.map((l, i) => (
-            <tr key={i} className={l.item === null ? 'flag' : ''}>
+            <tr key={i} className={l.item === null || flagged.includes(l.sku) ? 'flag' : ''}>
               <td>
                 {l.title}
                 {l.item === null && <div className="flag-note">Not part of what you asked for</div>}
+                {l.item !== null && flagged.includes(l.sku) && (
+                  <div className="flag-note">Claimed as item #{l.item}, but does not look like it (verifier)</div>
+                )}
               </td>
               <td><code>{l.sku}</code></td>
               <td className="num">{l.qty}</td>
@@ -111,6 +122,9 @@ export function LineTable({ lines, currency, total }: { lines: Line[]; currency:
           ))}
         </tbody>
         <tfoot>
+          {charges.filter((c) => c.amount).map((c) => (
+            <tr key={c.label}><td>{c.label}</td><td /><td /><td /><td className="num">{c.label === 'Discount' ? '-' : ''}{Number(c.amount!.amount).toFixed(2)}</td></tr>
+          ))}
           <tr><td>Total</td><td /><td /><td /><td className="num strong">{Number(total).toFixed(2)} {currency}</td></tr>
         </tfoot>
       </table>

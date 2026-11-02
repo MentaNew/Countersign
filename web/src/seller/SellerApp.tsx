@@ -1,17 +1,26 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { Link, match } from '../router'
-import { desk, getSellerToken, setSellerToken } from './api'
+import { checkSellerSession, desk, getSellerAuth, setSellerAuth } from './api'
 import DisputePage from './DisputePage'
 import DisputesPage from './DisputesPage'
 
 function useSellerAuthed() {
-  const [authed, setAuthed] = useState(!!getSellerToken())
+  const [authed, setAuthed] = useState(getSellerAuth())
   useEffect(() => {
-    const on = () => setAuthed(!!getSellerToken())
+    const on = () => setAuthed(getSellerAuth())
     window.addEventListener('desk-auth', on)
+    checkSellerSession()
     return () => window.removeEventListener('desk-auth', on)
   }, [])
   return authed
+}
+
+async function sellerSignOut() {
+  try {
+    await desk.logout()
+  } finally {
+    setSellerAuth(false)
+  }
 }
 
 function SellerLogin() {
@@ -20,7 +29,8 @@ function SellerLogin() {
   const submit = async (e: FormEvent) => {
     e.preventDefault()
     try {
-      setSellerToken((await desk.login(password)).token)
+      await desk.login(password)
+      setSellerAuth(true)
     } catch {
       setError('Wrong password.')
     }
@@ -48,6 +58,7 @@ function SellerLogin() {
 
 export default function SellerApp({ path }: { path: string }) {
   const authed = useSellerAuthed()
+  if (authed === null) return <div className="seller"><main className="login"><p className="muted">Loading…</p></main></div>
   if (!authed) return <div className="seller"><SellerLogin /></div>
 
   const m = match('/seller/disputes/:id', path)
@@ -62,7 +73,7 @@ export default function SellerApp({ path }: { path: string }) {
         </Link>
         <div className="nav-links">
           <Link href="/seller" className={path === '/seller' ? 'active' : ''}>Disputes</Link>
-          <button className="link" onClick={() => setSellerToken(null)}>Sign out</button>
+          <button className="link" onClick={sellerSignOut}>Sign out</button>
         </div>
       </nav>
       {page}

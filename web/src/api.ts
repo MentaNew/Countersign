@@ -20,6 +20,7 @@ export type Intent = {
   approved_by: string | null
   approved_at: string | null
   signature: string | null
+  user_signed?: boolean
 }
 export type Line = { sku: string; title: string; unit_price: Money; qty: number; item: number | null }
 export type CheckResult = { name: string; passed: boolean; detail: string }
@@ -31,15 +32,62 @@ export type Verdict = {
     extra_items: number
     model: string
     rationale: string
+    flagged_skus?: string[]
   } | null
   injection: { score: number; per_text: number[]; model: string } | null
   thresholds: Record<string, number>
   reasons: string[]
 }
+/** A cart the checkout guard read from a normal shop's checkout (not signed by the shop). */
+export type PageEvidence = {
+  shop_url: string
+  page_url: string
+  reader: string
+  shipping: Money | null
+  tax: Money | null
+  discount: Money | null
+  total: Money
+  screenshot_sha256?: string | null
+  note?: string
+}
+
+/** Payment made at a shop's own checkout, recorded by the gateway after the guard saw PayPal return. */
+export type PaymentConfirmation = {
+  paypal_order_id: string
+  checked_with_paypal: boolean
+  status?: string | null
+  amount?: string | null
+  currency?: string | null
+  capture_id?: string | null
+  confirmed_at: string
+  detail?: string
+  signature_valid?: boolean
+}
+
+/** Something waiting for the person: a permission to review or a cart held for approval. */
+export type Waiting = { kind: 'intent' | 'cart'; id: string; path: string; title: string; text: string; created_at: string }
+
+/** One exchange with a model check, exactly as sent and received (kept for later inspection). */
+export type ModelExchange = {
+  started_at: string
+  latency_ms: number
+  attempt: number
+  request: { model?: string; messages?: { role: string; content: string }[] }
+  status: number
+  response_text: string
+}
+
 export type Purchase = {
   purchase_id: string
   intent_id: string
+  agent_id?: string | null
   merchant_id: string
+  cart_source?: 'merchant_signed' | 'page' | 'catalog'
+  page_cart?: PageEvidence | null
+  page_screenshot_png_b64?: string
+  model_exchanges?: ModelExchange[]
+  payment_confirmation?: { confirmation: PaymentConfirmation } | null
+  checkout_permit?: { permit: { expires_at: string; total: string; currency: string; shop: string } } | null
   lines: Line[]
   total: string
   currency: string
@@ -52,6 +100,7 @@ export type Purchase = {
   approval_url: string | null
   approval_expires_at: string | null
   approved_by: string | null
+  user_signed?: boolean
   receipt_id: string | null
   paypal_order_id: string | null
   paypal_status: string | null
@@ -79,27 +128,88 @@ export type ReceiptCheck = {
   chain_entries?: number
   key_id?: string
   reason?: string
+  user_signatures?: Record<string, { valid: boolean; detail: string }>
+  witness?: Witness
+  payment_confirmation?: PaymentConfirmation | null
+  merchant_signature?: { present: boolean; valid: boolean | null; key_id?: string; detail?: string }
+  ap2?: { present: boolean; valid: boolean | null; checks: { name: string; ok: boolean }[]; spec?: string; not_implemented?: string[]; has_payment_receipt?: boolean }
   receipt?: Record<string, unknown> & { lines?: Line[]; total?: string; currency?: string }
 }
 
-const TOKEN_KEY = 'guardrail.token'
-
-export function getToken(): string | null {
-  try {
-    return localStorage.getItem(TOKEN_KEY)
-  } catch {
-    return null
-  }
+export type Witness = {
+  anchored: boolean
+  valid: boolean | null
+  detail?: string
+  gen_time?: string
+  tsa_name?: string
+  trusted_by?: string
+  anchor_id?: number
+  anchor_seq?: number
 }
 
-export function setToken(token: string | null) {
-  try {
-    if (token) localStorage.setItem(TOKEN_KEY, token)
-    else localStorage.removeItem(TOKEN_KEY)
-  } catch {
-    /* storage unavailable: the session lasts until reload */
-  }
+export type Anchor = { id: number; seq: number; head_hash: string; tsa_url: string; tsa_name: string | null; gen_time: string; token_url: string }
+
+export type PasskeyStatus = {
+  enabled: boolean
+  required: boolean
+  mode: string
+  passkeys: { credential_id: string; label: string | null; created_at: string }[]
+}
+
+export type ApprovalOptions =
+  | { passkey: false; required: boolean }
+  | { passkey: true; required: true; options: Record<string, unknown>; statement: Record<string, unknown> }
+
+export type Agent = {
+  agent_id: string
+  name: string
+  key_hint: string
+  status: 'active' | 'revoked'
+  kind: 'mcp' | 'browser'
+  spend_cap: string | null
+  currency: string
+  spent_30d: string
+  created_by: string | null
+  user_signed: boolean
+  created_at: string
+  last_used_at: string | null
+  revoked_at: string | null
+}
+
+export type Agents = { agents: Agent[]; paused: boolean; paused_at?: string; paused_by?: string }
+
+export type NewAgent = { name: string; spend_cap: string | null; currency?: string; kind?: 'mcp' | 'browser' }
+
+export type SessionInfo = {
+  id: string
+  method: 'password' | 'passkey'
+  created_at: string
+  last_seen_at: string
+  expires_at: string
+  user_agent: string | null
+  ip: string | null
+  current: boolean
+}
+
+// Sign-in lives in an HttpOnly cookie set by the gateway: page scripts never see the token.
+// This module only tracks whether the server says we are signed in.
+export type AuthState = 'unknown' | 'in' | 'out'
+let authState: AuthState = 'unknown'
+
+export function getAuth(): AuthState {
+  return authState
+}
+
+export function setAuth(state: AuthState) {
+  if (state === authState) return
+  authState = state
   window.dispatchEvent(new Event('auth'))
+}
+
+try {
+  localStorage.removeItem('guardrail.token') // tokens from before Nov 1 are no longer used
+} catch {
+  /* storage unavailable */
 }
 
 export class ApiError extends Error {
@@ -110,12 +220,16 @@ export class ApiError extends Error {
   }
 }
 
+const PUBLIC = ['/api/login', '/api/login/passkey', '/api/login/passkey/options']
+
 async function call<T>(method: string, path: string, body?: unknown): Promise<T> {
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
-  const token = getToken()
-  if (token) headers.Authorization = `Bearer ${token}`
-  const res = await fetch(path, { method, headers, body: body ? JSON.stringify(body) : undefined })
-  if (res.status === 401 && path !== '/api/login') setToken(null)
+  // The extra header proves the request comes from this app: another website cannot add it
+  // without the browser asking the gateway first, so it cannot act with your cookie.
+  const headers: Record<string, string> = { 'Content-Type': 'application/json', 'X-Guardrail-Request': '1' }
+  const res = await fetch(path, {
+    method, headers, credentials: 'same-origin', body: body ? JSON.stringify(body) : undefined,
+  })
+  if (res.status === 401 && !PUBLIC.includes(path)) setAuth('out')
   if (!res.ok) {
     let detail = res.statusText
     try {
@@ -128,19 +242,56 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<T>
   return res.json() as Promise<T>
 }
 
+/** Ask the server whether this browser is signed in (on load and after focus). */
+export async function checkSession() {
+  try {
+    await call('GET', '/api/session')
+    setAuth('in')
+  } catch {
+    setAuth('out')
+  }
+}
+
 export const api = {
-  login: (password: string) => call<{ token: string }>('POST', '/api/login', { password }),
+  login: (password: string) => call<{ user: string }>('POST', '/api/login', { password }),
+  passkeySignInOptions: () => call<ApprovalOptions & { nonce: string }>('POST', '/api/login/passkey/options'),
+  passkeySignIn: (nonce: string, credential: unknown) =>
+    call<{ user: string }>('POST', '/api/login/passkey', { nonce, credential }),
+  logout: () => call<{ ok: boolean }>('POST', '/api/logout'),
+  sessions: () => call<SessionInfo[]>('GET', '/api/sessions'),
+  endSession: (id: string) => call<{ ok: boolean }>('POST', `/api/sessions/${id}/end`),
+  endOtherSessions: () => call<{ ended: number }>('POST', '/api/sessions/end-others'),
+  waiting: () => call<Waiting[]>('GET', '/api/waiting'),
   intents: () => call<Intent[]>('GET', '/api/intents'),
   intent: (id: string) => call<Intent>('GET', `/api/intents/${id}`),
-  decideIntent: (id: string, approve: boolean) =>
-    call<Intent>('POST', `/api/intents/${id}/decision`, { approve }),
+  decideIntent: (id: string, approve: boolean, webauthn?: unknown) =>
+    call<Intent>('POST', `/api/intents/${id}/decision`, { approve, webauthn }),
+  revokeIntent: (id: string) => call<Intent>('POST', `/api/intents/${id}/revoke`),
+  intentApprovalOptions: (id: string) =>
+    call<ApprovalOptions>('POST', `/api/intents/${id}/approval-options`),
   purchases: (intentId?: string) =>
     call<Purchase[]>('GET', `/api/purchases${intentId ? `?intent_id=${intentId}` : ''}`),
   purchase: (id: string) => call<Purchase>('GET', `/api/purchases/${id}`),
-  decidePurchase: (id: string, approve: boolean, cartHash: string) =>
-    call<Purchase>('POST', `/api/purchases/${id}/decision`, { approve, cart_hash: cartHash }),
+  decidePurchase: (id: string, approve: boolean, cartHash: string, webauthn?: unknown) =>
+    call<Purchase>('POST', `/api/purchases/${id}/decision`, { approve, cart_hash: cartHash, webauthn }),
+  purchaseApprovalOptions: (id: string) =>
+    call<ApprovalOptions>('POST', `/api/purchases/${id}/approval-options`),
+  passkeys: () => call<PasskeyStatus>('GET', '/api/passkeys'),
+  passkeyRegistrationOptions: () => call<Record<string, unknown>>('POST', '/api/passkeys/register/options'),
+  registerPasskey: (credential: unknown, label: string) =>
+    call<PasskeyStatus>('POST', '/api/passkeys/register', { credential, label }),
+  agents: () => call<Agents>('GET', '/api/agents'),
+  agentOptions: (a: NewAgent) => call<ApprovalOptions>('POST', '/api/agents/options', a),
+  createAgent: (a: NewAgent, webauthn?: unknown) =>
+    call<Agent & { key: string; note: string }>('POST', '/api/agents', { ...a, webauthn }),
+  revokeAgent: (id: string) => call<Agent>('POST', `/api/agents/${id}/revoke`),
+  stopAgents: () => call<Agents>('POST', '/api/agents/stop'),
+  resumeOptions: () => call<ApprovalOptions>('POST', '/api/agents/resume/options'),
+  resumeAgents: (webauthn?: unknown) => call<Agents>('POST', '/api/agents/resume', { webauthn }),
   log: (q: { intent_id?: string; purchase_id?: string } = {}) =>
     call<LogEntry[]>('GET', `/api/log?${new URLSearchParams(q as Record<string, string>)}`),
+  anchors: () => call<Anchor[]>('GET', '/api/anchors'),
+  anchorNow: () => call<Anchor | { anchored: false; reason: string }>('POST', '/api/log/anchor'),
   verifyLog: () => call<{ valid: boolean; first_bad_seq: number | null; entries: number }>(
     'GET', '/api/log/verify'),
   verifyReceipt: (id: string) => call<ReceiptCheck>('GET', `/api/receipts/${id}/verify`),

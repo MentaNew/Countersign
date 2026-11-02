@@ -6,14 +6,70 @@ Run: uv run uvicorn demo.merchant.app:app --port 8100
 
 import html
 import json
+import os
+from functools import lru_cache
 from pathlib import Path
 
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.asymmetric import ec
+from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse
+from pydantic import BaseModel
+
+from gateway.catalog.client import price_lines
+from gateway.catalog.offers import merchant_profile, sign_offer
+from gateway.signing.jws import EcSigner
 
 CATALOG: dict = json.loads((Path(__file__).parent / "catalog.json").read_text())
+KEYS_DIR = Path(__file__).parent / "keys"  # one signing key per shop; gitignored
+BASE_URL = os.environ.get("MERCHANT_BASE_URL", "http://localhost:8100")
 
 app = FastAPI(title="Demo merchants")
+
+
+SEED = os.environ.get("MERCHANT_KEY_SEED", "")  # hosted: no disk, keys derived from a secret
+
+
+@lru_cache
+def shop_signer(merchant_id: str) -> EcSigner:
+    """Each shop signs its own cart offers (ES256 Checkout JWTs). The gateway pins this key.
+    Locally the key is a file; on a host without a lasting disk it is derived from
+    MERCHANT_KEY_SEED, so it stays the same across restarts (a changed key blocks purchases)."""
+    if SEED:
+        d = HKDF(hashes.SHA256(), 48, salt=b"demo-merchant-es256", info=merchant_id.encode()
+                 ).derive(SEED.encode())
+        n = 0xFFFFFFFF00000000FFFFFFFFFFFFFFFFBCE6FAADA7179E84F3B9CAC2FC632551  # P-256 order
+        return EcSigner(ec.derive_private_key(int.from_bytes(d, "big") % (n - 1) + 1,
+                                              ec.SECP256R1()))
+    return EcSigner.from_file(KEYS_DIR / f"{merchant_id}-es256.pem")
+
+
+class OfferLine(BaseModel):
+    sku: str
+    qty: int
+
+
+class OfferRequest(BaseModel):
+    lines: list[OfferLine]
+
+
+@app.get("/{merchant_id}/.well-known/agent-merchant.json")
+def profile(merchant_id: str) -> dict:
+    if merchant_id not in CATALOG:
+        raise HTTPException(404, "unknown merchant")
+    return merchant_profile(merchant_id, CATALOG[merchant_id]["name"], shop_signer(merchant_id),
+                            BASE_URL)
+
+
+@app.post("/api/{merchant_id}/cart-offers")
+def cart_offer(merchant_id: str, body: OfferRequest) -> dict:
+    """Price the requested cart and sign it (the shop's half of the cart)."""
+    if merchant_id not in CATALOG:
+        raise HTTPException(404, "unknown merchant")
+    offer = price_lines(merchant_id, CATALOG[merchant_id]["products"],
+                        [ln.model_dump() for ln in body.lines])
+    return sign_offer(shop_signer(merchant_id), offer)
 
 
 def _product(merchant_id: str, sku: str) -> dict:

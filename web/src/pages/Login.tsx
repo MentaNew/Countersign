@@ -1,21 +1,29 @@
 import { useState, type FormEvent } from 'react'
-import { api, setToken } from '../api'
+import { api, setAuth } from '../api'
+import { describeError, signInWithPasskey } from '../passkey'
 
 export default function Login() {
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 
-  const submit = async (e: FormEvent) => {
-    e.preventDefault()
+  const run = async (f: () => Promise<unknown>, fallback: string) => {
     setBusy(true)
+    setError(null)
     try {
-      setToken((await api.login(password)).token)
-    } catch {
-      setError('Wrong password.')
+      await f()
+      setAuth('in')
+    } catch (e) {
+      const msg = describeError(e)
+      setError(/wrong password/i.test(msg) ? fallback : msg)
     } finally {
       setBusy(false)
     }
+  }
+
+  const submit = (e: FormEvent) => {
+    e.preventDefault()
+    run(() => api.login(password), 'Wrong password.')
   }
 
   return (
@@ -26,13 +34,22 @@ export default function Login() {
           Sign in as the person the agent buys for. Only you can approve what it may buy; the agent
           has no access to this screen.
         </p>
+        <button type="button" className="primary" disabled={busy}
+          onClick={() => run(signInWithPasskey, 'Passkey sign-in failed.')}>
+          Sign in with your passkey
+        </button>
+        <div className="or"><span>or</span></div>
         <label>
           Password
-          <input type="password" value={password} autoFocus onChange={(e) => setPassword(e.target.value)} />
+          <input type="password" value={password} autoComplete="current-password"
+            onChange={(e) => setPassword(e.target.value)} />
         </label>
-        {error && <div className="notice bad">{error}</div>}
-        <button className="primary" disabled={busy || !password}>Sign in</button>
-        <p className="muted small">Demo login: the <code>USER_PASSWORD</code> value from <code>.env</code>.</p>
+        {error && <div className="notice bad" role="alert">{error}</div>}
+        <button disabled={busy || !password}>Sign in with password</button>
+        <p className="muted small">
+          Sessions end after 2 hours without activity and after 12 hours at most. Approvals always ask
+          for your passkey once one is set up.
+        </p>
       </form>
     </main>
   )

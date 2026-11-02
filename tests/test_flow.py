@@ -112,3 +112,31 @@ async def test_tampered_log_invalidates_receipt(gw, engine):
     v = await gw.verify_receipt(out["receipt_id"])
     assert v["signature_valid"] and not v["chain_valid"] and not v["valid"]
     assert v["chain_first_bad_seq"] == 1
+
+
+async def test_receipt_carries_intent_and_cart_mandates(gw):
+    iid = await active_intent(gw)
+    out = await gw.request_purchase(iid, "papermill-supply", [L(sku="PM-A4-500W", qty=10, item=0)])
+    r = (await gw.get_receipt(out["receipt_id"]))["receipt"]
+    assert r["intent_mandate"]["intent_id"] == iid
+    assert r["intent_mandate"]["terms"]["max_total"]["amount"] == "60.00"
+    assert r["cart_mandate"]["cart_hash"] == out["cart_hash"]
+    assert r["cart_mandate"]["approved_by"] == "policy"
+    rules = {c["name"]: c["passed"] for c in r["gateway_checks"]["rules"]}
+    assert rules["budget"] and rules["lines_in_intent"] and r["gateway_checks"]["decision"] == "approve"
+
+
+async def test_revoking_a_permission_cancels_held_carts_and_blocks_new_ones(gw):
+    iid = await active_intent(gw)
+    held = await gw.request_purchase(iid, "northside-office",
+                                     [L(sku="NO-A4-500W-PREM", qty=10, item=0)])
+    assert held["status"] == "pending_approval"
+    out = await gw.revoke_intent(iid, "demo-user")
+    assert out["status"] == "revoked"
+    assert (await gw.get_purchase(held["purchase_id"]))["status"] == "cancelled"
+    with pytest.raises(GatewayError):
+        await gw.decide_purchase(held["purchase_id"], "demo-user", True, held["cart_hash"])
+    with pytest.raises(GatewayError, match="revoked"):
+        await gw.request_purchase(iid, "papermill-supply", [L(sku="PM-A4-500W", qty=1, item=0)])
+    log = [e["event"] for e in await gw.get_log(intent_id=iid)]
+    assert "intent_revoked" in log

@@ -10,7 +10,7 @@ import pytest
 from sqlalchemy import text, update
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from dispute_desk.app import create_desk_app, seller_token
+from dispute_desk.app import DESK_COOKIE, create_desk_app
 from dispute_desk.config import DeskSettings
 from dispute_desk.models import create_desk_schema
 from dispute_desk.packet import build_packet, evidence_plan
@@ -141,8 +141,13 @@ async def stack(engine, tmp_path):
         purchase = await gw.request_purchase(r["intent_id"], "papermill-supply",
                                              [L(sku="PM-A4-500W", qty=10, item=0)])
         paypal = FakeDisputes()
+        catalog = gw_app.state.gateway.catalog
+
+        async def shop_keys(merchant_id):  # the seller knows its own shop's key
+            return catalog.signer(merchant_id).jwk
+
         receipts = GatewayReceipts("http://gateway.test",
-                                   transport=httpx.ASGITransport(app=gw_app))
+                                   transport=httpx.ASGITransport(app=gw_app), shop_keys=shop_keys)
         desk = Desk(async_sessionmaker(engine, expire_on_commit=False), paypal, receipts)
         yield gw, desk, paypal, purchase
 
@@ -155,7 +160,14 @@ async def test_desk_verifies_receipt_through_public_endpoints(stack):
     assert view["has_valid_receipt"] and view["recommendation"] == "contest"
     check = view["receipt_check"]
     assert check["signature_valid"] and check["gateway_report"]["valid"]
-    assert view["packet"]["authorization"]["user_text"] == "Buy 10 reams of A4"
+    auth = view["packet"]["authorization"]
+    assert auth["user_text"] == "Buy 10 reams of A4"
+    assert auth["intent_terms"]["merchants"] and auth["gateway_checks"]["decision"] == "approve"
+    assert "checked the cart against the buyer's signed request" in view["packet"]["narrative"]
+    names = [c["name"] for c in view["packet"]["checks"] if c["ok"]]
+    assert any(n.startswith("Prices and lines were signed by the shop") for n in names)
+    assert "That key is the shop's own published key" in names
+    assert any(n.startswith("AP2 v0.2 Checkout and Payment Mandates verify") for n in names)
 
 
 async def test_tampered_buyer_log_weakens_the_packet(stack):
@@ -225,13 +237,21 @@ async def test_seller_login_is_separate_from_buyer_login(engine):
         httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://desk") as c,
     ):
         assert (await c.get("/desk/api/disputes")).status_code == 401
-        from gateway.api.auth import user_token
-        buyer = {"Authorization": f"Bearer {user_token('seller-secret')}"}
+        buyer = {"Authorization": "Bearer ses-token-from-the-buyer-gateway"}
         assert (await c.get("/desk/api/disputes", headers=buyer)).status_code == 401
-        tok = (await c.post("/desk/api/login", json={"password": "seller-secret"})).json()["token"]
-        assert tok == seller_token("seller-secret")
+        r = await c.post("/desk/api/login", json={"password": "seller-secret"})
+        cookie = r.headers["set-cookie"].lower()
+        assert f"{DESK_COOKIE}=" in cookie and "httponly" in cookie and "path=/desk" in cookie
+        tok = r.json()["token"]
         r = await c.get("/desk/api/disputes", headers={"Authorization": f"Bearer {tok}"})
         assert r.status_code == 200
+        assert (await c.get("/desk/api/disputes")).status_code == 200  # via the cookie
+        # A change with the cookie alone (no app header) is refused.
+        assert (await c.post("/desk/api/disputes/import", json={"dispute_id": "PP-X"})).status_code == 403
+        assert (await c.post("/desk/api/logout", headers={"X-Guardrail-Request": "1"})).status_code == 200
+        c.cookies.clear()
+        r = await c.get("/desk/api/disputes", headers={"Authorization": f"Bearer {tok}"})
+        assert r.status_code == 401  # signed out: the token no longer works
         assert (await c.post("/webhooks/paypal", json={"id": "x"})).status_code == 400
 
 
@@ -254,3 +274,23 @@ def test_evidence_types_follow_paypal_rules_per_reason():
     assert [e["evidence_type"] for e in evidence_plan("UNAUTHORISED", [], ups, "n")] \
         == ["PROOF_OF_FULFILLMENT", "OTHER"]
     assert all("OTHER" != e["evidence_type"] for e in evidence_plan(nr, [], ups, "n"))
+
+
+def test_no_suggestion_when_paypal_accepts_no_response():
+    """Regression (Oct 19): a case under PayPal's own review offered no actions, yet the desk
+    still suggested a refund."""
+    d = dispute_json(reason="MERCHANDISE_OR_SERVICE_NOT_RECEIVED", amount="3.89", links=())
+    d["status"] = "UNDER_REVIEW"
+    p = build_packet(d, valid_check(), now=NOW)
+    assert p["recommendation"]["action"] == "wait" and p["recommendation"]["paypal_call"] is None
+    assert p["available_actions"] == []
+
+
+def test_suggestion_never_names_an_action_paypal_does_not_offer():
+    """Regression (Oct 19): 'not as described' inquiry offered no provide_evidence, but the desk
+    suggested contesting."""
+    d = dispute_json(reason="MERCHANDISE_OR_SERVICE_NOT_AS_DESCRIBED", amount="15.00",
+                     links=("accept_claim", "make_offer"))
+    rec = build_packet(d, valid_check(), now=NOW)["recommendation"]
+    assert rec["action"] == "evidence_not_accepted" and rec["paypal_call"] is None
+    assert "escalate" in rec["why"][-1]

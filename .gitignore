@@ -1,9 +1,11 @@
-# Secrets: credentials and the gateway's signing key never leave this machine
+# Secrets: credentials and signing keys never leave this machine
 .env
 .env.*
 !.env.example
 *.pem
+*.key
 keys/
+render-secrets.env
 
 # Python
 .venv/
@@ -11,6 +13,7 @@ __pycache__/
 *.pyc
 .pytest_cache/
 .ruff_cache/
+.mypy_cache/
 *.egg-info/
 .coverage
 htmlcov/
@@ -26,9 +29,34 @@ web/dist/
 spikes/out/
 .guardrail-hook-state/
 *.log
+# screenshots from the browser end-to-end scripts (default output folders)
+guard-shots/
+e2e-shots/
+test-results/
+playwright-report/
+# local throwaway databases (e.g. the Homebrew Postgres used when Docker is down)
+pgdata/
 
-# Editors, OS, per-user Claude Code settings
+# Editors, OS
 .DS_Store
 .vscode/
 .idea/
-.claude/settings.local.json
+*.swp
+
+# Personal AI-assistant files (Claude Code, Cursor, ...). The demo agent workspaces in
+# demo/*-workspace/ ARE part of the project and stay tracked: their .claude/settings.json,
+# .mcp.json and CLAUDE.md define what the demo agent may do.
+/.claude/
+**/.claude/settings.local.json
+CLAUDE.local.md
+**/CLAUDE.local.md
+/CLAUDE.md
+.cursor/
+.cursorrules
+.aider*
+graphify-out/
+
+# Private notes (kept on this machine only)
+Agent spend guardrail discussion notes.md
+*.private.md
+notes/
