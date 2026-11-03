@@ -5,8 +5,11 @@ from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
+from fractions import Fraction
+from typing import Any
 
 from gateway.domain import CheckResult, Mandate, ResolvedLine
+from gateway.policy.units import line_units
 
 
 @dataclass(frozen=True)
@@ -15,7 +18,10 @@ class SpendState:
 
     spent: Decimal = Decimal(0)
     purchases: int = 0
-    qty_by_item: dict[int, int] | None = None
+    # Already bought per requested item, in requested items (pack sizes applied, see units.py)
+    qty_by_item: dict[int, Any] | None = None
+    # Already bought per requested item, in packages as listed (defaults to qty_by_item)
+    packs_by_item: dict[int, int] | None = None
 
 
 def run_hard_checks(
@@ -29,7 +35,6 @@ def run_hard_checks(
     """`charges`: shipping and tax minus discounts, when the shop adds them at checkout."""
     cur = mandate.max_total.currency
     total = sum((ln.line_total for ln in lines), Decimal(0)) + charges
-    already = state.qty_by_item or {}
     results: list[CheckResult] = []
 
     def check(name: str, passed: bool, detail: str = "") -> None:
@@ -61,16 +66,15 @@ def run_hard_checks(
         f"not part of the approved intent: {unmapped}" if unmapped else "",
     )
 
-    qty: dict[int, int] = defaultdict(int)
-    for ln in lines:
-        if ln.item is not None and 0 <= ln.item < len(mandate.items):
-            qty[ln.item] += ln.qty
     over = []
-    for idx, n in qty.items():
-        allowed = mandate.items[idx].qty
-        used = already.get(idx, 0)
-        if used + n > allowed:
-            over.append(f"item {idx} ({mandate.items[idx].description}): {used}+{n} > {allowed}")
+    for idx, u in item_units(mandate, lines, state).items():
+        # Counted in requested items (pack sizes applied; a line without a readable pack size
+        # counts one per unit bought). Over the request is blocked, except when only pack sizes
+        # read from titles say so while the packages themselves fit: that is held for the person
+        # instead (unit_findings), in case a title was misread.
+        if u.units_total > u.allowed and not (u.all_known and u.packs_total <= u.allowed):
+            over.append(f"item {idx} ({mandate.items[idx].description}): "
+                        f"{u.prior_packs}+{u.packs} > {u.allowed}")
     check("quantity", not over, "; ".join(over))
 
     pricey = []
@@ -123,3 +127,56 @@ def recurring_lines(mandate: Mandate, lines: list[ResolvedLine]) -> list[str]:
     asked = " ".join(it.description for it in mandate.items)
     return [ln.sku for ln in lines
             if RECURRING.search(ln.title) and not RECURRING.search(asked)]
+
+
+@dataclass(frozen=True)
+class ItemUnits:
+    allowed: int  # requested quantity of the item
+    packs: int  # packages in this cart, as listed
+    units: Fraction  # this cart, in requested items (pack sizes applied)
+    prior_packs: int
+    prior_units: Fraction
+    all_known: bool  # every line's pack size was read from its title
+
+    @property
+    def packs_total(self) -> int:
+        return self.prior_packs + self.packs
+
+    @property
+    def units_total(self) -> Fraction:
+        return self.prior_units + self.units
+
+
+def item_units(mandate: Mandate, lines: list[ResolvedLine],
+               state: SpendState) -> dict[int, ItemUnits]:
+    units: dict[int, Fraction] = defaultdict(Fraction)
+    packs: dict[int, int] = defaultdict(int)
+    known: dict[int, bool] = defaultdict(lambda: True)
+    for ln in lines:
+        if ln.item is None or not (0 <= ln.item < len(mandate.items)):
+            continue
+        lu = line_units(mandate.items[ln.item].description, ln.title, ln.qty)
+        units[ln.item] += lu.requested
+        packs[ln.item] += ln.qty
+        known[ln.item] = known[ln.item] and lu.known
+    prior_u = state.qty_by_item or {}
+    prior_p = state.packs_by_item if state.packs_by_item is not None else prior_u
+    return {idx: ItemUnits(allowed=mandate.items[idx].qty, packs=packs[idx], units=units[idx],
+                           prior_packs=int(prior_p.get(idx, 0)),
+                           prior_units=Fraction(prior_u.get(idx, 0)),
+                           all_known=known[idx])
+            for idx in units}
+
+
+def unit_findings(mandate: Mandate, lines: list[ResolvedLine], state: SpendState) -> list[str]:
+    """Reasons to hold a cart for the person, from pack sizes read in code."""
+    out = []
+    for idx, u in item_units(mandate, lines, state).items():
+        what = mandate.items[idx].description
+        if u.all_known and u.units_total > u.allowed and u.packs_total <= u.allowed:
+            out.append(f"more than you asked for: the pack sizes add up to "
+                       f"{float(u.units_total):g} x \"{what}\", you asked for {u.allowed}")
+        elif u.units < u.packs and u.packs_total == u.allowed and u.units_total < u.allowed:
+            out.append(f"smaller packs than you asked for: {u.packs} pack(s), but only "
+                       f"{float(u.units_total):g} of the {u.allowed} x \"{what}\" requested")
+    return out

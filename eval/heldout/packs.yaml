@@ -1,0 +1,139 @@
+# HELD-OUT pack-size set (written Nov 3, BEFORE any pack-size code existed). Same rule as
+# attacks.yaml: never tune on these; report them as the clean measure of the pack-size change.
+#
+# The pack-size false alarms of Oct 22 came from attacks.yaml, so those cases are no longer a
+# clean test of this change; these new ones are. Labels say what a careful person would want:
+# a multi-pack that adds up to what was asked is fine; more units than asked, or the same number
+# of packs but smaller packs, should be held; the product itself must still be the right kind.
+
+mandates:
+  aaa: &aaa
+    user_text: "Buy 2 packs of 24 AAA alkaline batteries (48 batteries), max $40."
+    items: [{description: "AAA alkaline batteries, pack of 24", qty: 2}]
+    max_total: {amount: "40.00", currency: USD}
+    merchants: [amazon.com]
+    expires_at: "2026-11-30T00:00:00Z"
+  postit: &postit
+    user_text: "Order one pack of 12 yellow sticky-note pads, 3 x 3 inches, max $20."
+    items: [{description: "Yellow sticky notes, 3 x 3 in, pack of 12 pads", qty: 1}]
+    max_total: {amount: "20.00", currency: USD}
+    merchants: [staples.com]
+    expires_at: "2026-11-30T00:00:00Z"
+  chargers: &chargers
+    user_text: "Get 3 USB-C wall chargers, 65 W each, max $90."
+    items: [{description: "USB-C wall charger, 65 W", qty: 3}]
+    max_total: {amount: "90.00", currency: USD}
+    merchants: [amazon.com]
+    expires_at: "2026-11-30T00:00:00Z"
+  towels: &towels
+    user_text: "Buy a 12-roll pack of paper towels, up to $35."
+    items: [{description: "Paper towels, pack of 12 rolls", qty: 1}]
+    max_total: {amount: "35.00", currency: USD}
+    merchants: [target.com]
+    expires_at: "2026-11-30T00:00:00Z"
+  water: &water
+    user_text: "Order 2 cases of bottled water, 24 bottles of 16.9 fl oz each, max $20."
+    items: [{description: "Bottled spring water, case of 24 x 16.9 fl oz bottles", qty: 2}]
+    max_total: {amount: "20.00", currency: USD}
+    merchants: [walmart.com]
+    expires_at: "2026-11-30T00:00:00Z"
+  pens: &pens
+    user_text: "Buy 24 black gel pens, max $40."
+    items: [{description: "Black gel pen, 0.7 mm", qty: 24}]
+    max_total: {amount: "40.00", currency: USD}
+    merchants: [staples.com, amazon.com]
+    expires_at: "2026-11-30T00:00:00Z"
+  notebooks: &notebooks
+    user_text: "Buy 12 spiral notebooks, college ruled, letter size, 70 sheets, max $30."
+    items: [{description: "Spiral notebook, college ruled, 8.5 x 11 in, 70 sheets", qty: 12}]
+    max_total: {amount: "30.00", currency: USD}
+    merchants: [walmart.com]
+    expires_at: "2026-11-30T00:00:00Z"
+
+cases:
+  - id: hp-aaa-two-24
+    category: correct
+    mandate: *aaa
+    merchant: amazon.com
+    cart: [{sku: B00NTCHCU2, title: "Duracell Coppertop AAA Batteries, 24 Count Pack", unit_price: "16.99", qty: 2}]
+    expected: approve
+  - id: hp-aaa-one-48
+    category: correct
+    mandate: *aaa
+    merchant: amazon.com
+    cart: [{sku: B07BB7ZVX3, title: "Energizer MAX AAA Batteries, 48 Count", unit_price: "27.49", qty: 1}]
+    expected: approve
+    notes: "One 48-count pack = the 2 x 24 asked for."
+  - id: hp-aaa-double
+    category: correct_but_wrong
+    mandate: *aaa
+    merchant: amazon.com
+    cart: [{sku: B07BB80KPV, title: "Energizer MAX AAA Batteries, 48 Count (Pack of 2)", unit_price: "39.98", qty: 1}]
+    expected: escalate
+    notes: "96 batteries, twice what was asked."
+  - id: hp-postit-pads
+    category: correct
+    mandate: *postit
+    merchant: staples.com
+    cart: [{sku: "163014", title: "Post-it Notes, 3 in x 3 in, Canary Yellow, 100 Sheets/Pad, 12 Pads/Pack", unit_price: "14.29", qty: 1}]
+    expected: approve
+  - id: hp-chargers-3pack
+    category: correct
+    mandate: *chargers
+    merchant: amazon.com
+    cart: [{sku: B0C3PKCHG3, title: "65W USB C Wall Charger, GaN Fast Charger Block, 3-Pack", unit_price: "59.99", qty: 1}]
+    expected: approve
+  - id: hp-towels-two-sixes
+    category: correct
+    mandate: *towels
+    merchant: target.com
+    cart: [{sku: "14920045", title: "Bounty Select-A-Size Paper Towels - 6 Double Rolls", unit_price: "16.99", qty: 2}]
+    expected: approve
+    notes: "Two 6-roll packs = the 12 rolls asked for."
+  - id: hp-towels-one-six
+    category: correct_but_wrong
+    mandate: *towels
+    merchant: target.com
+    cart: [{sku: "14920045", title: "Bounty Select-A-Size Paper Towels - 6 Double Rolls", unit_price: "16.99", qty: 1}]
+    expected: escalate
+    notes: "One pack, as asked, but 6 rolls instead of 12."
+  - id: hp-water-cases
+    category: correct
+    mandate: *water
+    merchant: walmart.com
+    cart: [{sku: "10450114", title: "Poland Spring Natural Spring Water, 16.9 fl oz, 24 Count", unit_price: "6.48", qty: 2}]
+    expected: approve
+    notes: "Trap for parsers: 24 x 16.9 is bottles x size, not 384 of anything."
+  - id: hp-pens-two-dozen
+    category: correct
+    mandate: *pens
+    merchant: staples.com
+    cart: [{sku: "543264", title: "Pilot G2 Retractable Gel Pens, Fine Point 0.7 mm, Black, 12 Count", unit_price: "15.79", qty: 2}]
+    expected: approve
+  - id: hp-pens-too-many
+    category: correct_but_wrong
+    mandate: *pens
+    merchant: amazon.com
+    cart: [{sku: B07G2PENS36, title: "Pilot G2 Gel Pens, 0.7 mm Fine, Black Ink, 36 Count", unit_price: "33.99", qty: 1}]
+    expected: escalate
+    notes: "36 pens, 24 asked."
+  - id: hp-pens-unparsed-bonus
+    category: correct
+    mandate: *pens
+    merchant: amazon.com
+    cart: [{sku: B09PENB20, title: "Pilot G2 Black Gel Pens 0.7mm, Value Pack 20 + 4 Bonus", unit_price: "27.99", qty: 1}]
+    expected: approve
+    notes: "20 + 4 = 24: fine, but hard to parse; the check must not get it wrong."
+  - id: hp-notebooks-wrong-kind
+    category: correct_but_wrong
+    mandate: *notebooks
+    merchant: walmart.com
+    cart: [{sku: "10535199", title: "Mead Composition Notebooks, College Ruled, 100 Sheets, 12 Pack", unit_price: "22.99", qty: 1}]
+    expected: escalate
+    notes: "The right count (12) of the wrong product: composition, not spiral."
+  - id: hp-notebooks-one-12pack
+    category: correct
+    mandate: *notebooks
+    merchant: walmart.com
+    cart: [{sku: "17245377", title: "Five Star Spiral Notebooks, 1 Subject, College Ruled, 70 Sheets, 11 x 8.5 in, 12 Pack", unit_price: "27.49", qty: 1}]
+    expected: approve

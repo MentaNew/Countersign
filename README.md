@@ -65,7 +65,7 @@ Try it on the demo web shop (`demo/webshop`, http://greenleaf.localhost:8300) or
 
 ## How well the checks work
 
-154 labelled carts (`docs/eval.md`), including 42 **held out** (written before any run and never used for tuning): wrong variants, disguised extras, subscriptions, and hidden instructions in other languages, fake system messages, base64 and role play. With the GroqCloud verifier: **0 of 110 carts that should have been stopped were paid without asking** (95% CI 0–3%); 6 of 44 good carts were held for a tap (mostly pack sizes such as "12-pack" for 12 notebooks). Answers are cached, so the numbers reproduce without an API key.
+167 labelled carts (`docs/eval.md`), including 55 **held out** (written before any run and never used for tuning): wrong variants, disguised extras, subscriptions, pack sizes, and hidden instructions in other languages, fake system messages, base64 and role play. With the GroqCloud verifier: **0 of 114 carts that should have been stopped were paid without asking** (95% CI 0–3%); 6 of 53 good carts were held for a tap. Pack sizes ("12 Pack", "48 Count (Pack of 2)") are counted in code, not left to the model. Answers are cached, so the numbers reproduce without an API key.
 
 ## Real vs simulated
 
@@ -78,7 +78,7 @@ Try it on the demo web shop (`demo/webshop`, http://greenleaf.localhost:8300) or
 | Approvals | WebAuthn passkeys (Touch ID / Face ID) | Tests use Chrome's virtual authenticator |
 | Outside witness | RFC 3161 timestamps from DigiCert and FreeTSA | — |
 | AP2 | v0.2 Checkout and Payment Mandates (SD-JWT, ES256), focused subset | Not full protocol compliance |
-| Evaluation | 154 cases, 42 held out, Wilson intervals | Written by the project author |
+| Evaluation | 167 cases, 55 held out, Wilson intervals | Written by the project author |
 
 ## Layout
 

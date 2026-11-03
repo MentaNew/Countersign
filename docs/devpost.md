@@ -33,7 +33,7 @@ AI agents can now browse shops and fill carts, but handing one a payment method 
 - Checkout guard: Playwright driving Chrome, as an MCP server for the agent.
 - Agent: Claude through Claude Code and the Claude Agent SDK.
 - Web app: React + TypeScript (buyer inbox, approvals, audit log, receipts; seller dispute desk).
-- Evaluation: 154 labelled carts, 42 held out, cached model replies.
+- Evaluation: 167 labelled carts, 55 held out, cached model replies.
 
 ## Challenges
 
@@ -43,7 +43,7 @@ AI agents can now browse shops and fill carts, but handing one a payment method 
 
 ## Accomplishments
 
-- 0 of 110 carts that should have been stopped were paid without asking (95% CI 0–3%); all 15 held-out hidden-instruction attacks were caught.
+- 0 of 114 carts that should have been stopped were paid without asking (95% CI 0–3%); all 15 held-out hidden-instruction attacks were caught; pack sizes are counted in code (13 of 13 new held-out pack cases right).
 - Real sandbox disputes answered from the desk (refund offer, evidence accepted).
 - Receipts anyone can check with public keys only: gateway signature, the buyer's device signature, the shop's signature, the outside timestamp.
 

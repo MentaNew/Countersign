@@ -8,7 +8,13 @@ from decimal import Decimal
 
 from gateway.domain import CheckResult, Mandate, ResolvedLine, Verdict
 from gateway.policy.decision import Thresholds, decide
-from gateway.policy.hard_checks import SpendState, cart_total, recurring_lines, run_hard_checks
+from gateway.policy.hard_checks import (
+    SpendState,
+    cart_total,
+    recurring_lines,
+    run_hard_checks,
+    unit_findings,
+)
 from gateway.verifier.base import InjectionDetector, Verifier
 
 log = logging.getLogger("gateway.evaluate")
@@ -49,6 +55,12 @@ async def evaluate_cart(
     semantic = (await _guarded(verifier.evaluate(mandate, lines), "semantic check", notes)
                 if hard_ok else None)
     verdict = decide(mandate, cart_total(lines) + charges, hard, semantic, inj, thresholds)
+    if verdict.decision != "block":
+        held = unit_findings(mandate, lines, state)
+        if held:
+            reasons = [r for r in verdict.reasons if r != "all checks passed"]
+            verdict = verdict.model_copy(update={"decision": "escalate",
+                                                 "reasons": [*held, *reasons]})
     repeat = recurring_lines(mandate, lines)
     if repeat and verdict.decision == "approve":
         verdict = verdict.model_copy(update={

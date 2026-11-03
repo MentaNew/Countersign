@@ -9,6 +9,7 @@ import secrets
 from collections import defaultdict
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from fractions import Fraction
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -39,6 +40,7 @@ from gateway.paypal.client import PayPal, PayPalError, payer_action_url
 from gateway.policy.decision import Thresholds
 from gateway.policy.evaluate import evaluate_cart
 from gateway.policy.hard_checks import SpendState, cart_total, run_hard_checks
+from gateway.policy.units import line_units
 from gateway.signing.jws import EcSigner
 from gateway.signing.keys import Signer
 from gateway.signing.passkeys import (
@@ -430,16 +432,24 @@ class Gateway:
                 )
             )
         ).scalars()
-        spent, n, qty = Decimal(0), 0, defaultdict(int)
+        it = await s.get(Intent, intent_id)
+        items = (it.mandate or {}).get("items", []) if it else []
+        spent, n = Decimal(0), 0
+        units: dict[int, Fraction] = defaultdict(Fraction)
+        packs: dict[int, int] = defaultdict(int)
         for p in rows:
             if p.id == exclude:
                 continue
             spent += p.total
             n += 1
             for ln in p.lines:
-                if ln.get("item") is not None:
-                    qty[ln["item"]] += ln["qty"]
-        return SpendState(spent=spent, purchases=n, qty_by_item=dict(qty))
+                idx = ln.get("item")
+                if idx is not None:
+                    desc = items[idx]["description"] if 0 <= idx < len(items) else ""
+                    units[idx] += line_units(desc, ln.get("title", ""), ln["qty"]).requested
+                    packs[idx] += ln["qty"]
+        return SpendState(spent=spent, purchases=n, qty_by_item=dict(units),
+                          packs_by_item=dict(packs))
 
     async def request_purchase(
         self,

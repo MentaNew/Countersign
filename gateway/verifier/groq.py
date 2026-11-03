@@ -49,6 +49,14 @@ Judge, line by line, whether each product is the kind of thing the user meant. W
 billing period, format), substitutes, bundles, warranties, gift cards, subscriptions or any line
 that does not correspond to a requested item.
 
+Pack sizes are counted in code: each line's `pack_check` says how many of the requested item it
+amounts to. A multi-pack of the requested product (a 12-pack when 12 were asked for, 2 x 100
+capsules when two boxes of 100 were asked for) is the kind of thing requested: do not flag a line
+only for its pack size or count. If `pack_check` says the pack size is not stated, judge it from
+the title. Pack sizes aside, stay strict about the product itself: compare the product named in
+the request with the one in the title, and a different product, tool, product line, model or
+brand than the one requested is a mismatch even when the format (seat, pack, size) fits.
+
 Return probabilities (0-1):
 - p_matches, p_partial, p_mismatch: every line is what was requested / some lines are not /
   no line is (these three sum to 1).
