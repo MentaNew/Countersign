@@ -134,4 +134,3 @@ Do not cut: P1.1 passkeys, P1.2 anchoring, P1.3 merchant-signed carts, P2.1 chec
 - [PYMNTS: Shopify opens store checkouts to AI agents](https://www.pymnts.com/news/artificial-intelligence/2026/shopify-opens-store-checkouts-to-ai-agents/)
 - [The AI Insider: Shopify opens checkout as rivals block agentic shopping](https://theaiinsider.tech/2026/09/30/shopify-opens-checkout-to-browser-based-ai-agents-as-rivals-block-agentic-shopping/)
 - [Nile: AI shopping agents, the three kinds and how each buys](https://nile.app/blog/ai-shopping-agents/)
-- Protocol landscape (AP2, ACP, UCP, Agent Ready): discussion notes, section 10

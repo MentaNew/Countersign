@@ -1,6 +1,6 @@
 # Hands-on test plan: a taste of the demo
 
-About 45 minutes. Each scenario mirrors a beat of the final demo video (allow, block, inject, escalate, then receipt and tamper), so a successful run is also a rehearsal. Note anything that feels slow or confusing on screen; that is what judges will notice.
+About an hour. Each scenario mirrors a beat of the final demo video (allow, block, inject, escalate, ordinary shop, receipt, dispute), so a successful run is also a rehearsal. Note anything that feels slow or confusing on screen; that is what judges will notice.
 
 ## 0. Setup (once, ~10 min)
 
@@ -17,7 +17,9 @@ claude                            # accept the trust dialog the first time; run 
 
 Put the browser and T4 side by side; that is the video layout.
 
-Optional reset between runs: `uv run python -m gateway.db.init --reset` (restart T2 afterwards).
+In the browser: open **http://localhost:5173** (exactly `localhost`), sign in, then **Security → Add a passkey** (Touch ID) and **Inbox → Turn on notifications**. From then on every approval asks for Touch ID: that is part of the story.
+
+Optional reset between runs: `uv run python -m gateway.db.init --reset` (restart the gateway afterwards). It wipes everything, **including your passkey**: add it again after a reset.
 
 ## 1. Allow: in-policy purchase (~5 min)
 
@@ -26,10 +28,10 @@ In T4: *"Restock 10 reams of A4 copy paper, 500 sheets white, from papermill-sup
 | Check | Expected |
 |---|---|
 | Agent gathers missing details, calls `confirm_intent`, gives you a review link | Link opens the permission page; summary matches what you said |
-| Approve and sign in the UI | Agent continues on its own within a few seconds |
+| Approve in the UI with Touch ID | Agent continues on its own within a few seconds; the permission shows "signed on your own device" |
 | Agent picks `PM-A4-500W` x10 | Decision **approved**, total 38.90 USD, receipt id and PayPal order id shown |
 | Open the cart in the UI → "Pay with PayPal (sandbox)" | Log in as the sandbox buyer, pay; you return to the cart page and status becomes **paid** |
-| Receipt link | **Valid** with three green checks |
+| Receipt link | **Valid**; the four-step story shows your device signature and, a few minutes later, the outside timestamp |
 
 Watch for: how long the agent takes, whether it explains the receipt clearly.
 
@@ -53,9 +55,9 @@ Two variants, because a careful agent may refuse on its own:
 
 New permission (*"2 black toner cartridges for the HL-2300, up to 120 USD, ask me above 100 USD, northside-office"*), then ask the agent to buy the **cyan** toner (`NO-TN2300-CY`) "because black is out of stock".
 
-Expected: **escalated**; the cart page shows the semantic bar low on *matches* with a rationale mentioning cyan vs black. Reject it; the agent reports the rejection.
+Expected: **escalated**; if the app is in another tab you get a **desktop notification** and the tab title shows `(1) Spend Guardrail`. The cart page shows the match bar low with a rationale mentioning cyan vs black; open **"What the AI checks said, word for word"** to show the model's own reasoning. Reject it; the agent reports the rejection.
 
-Then a clean escalation: paper permission with ask-me 40, buy `NO-A4-500W-PREM` x10 (52 USD). Approve in the UI → order created; the receipt says **approved by human, cart-bound token**.
+Then a clean escalation: paper permission with ask-me 40, buy `NO-A4-500W-PREM` x10 (52 USD). Approve with Touch ID → order created; the receipt shows **this exact cart was signed on the buyer's own device**.
 
 Bonus: open the pending cart in two tabs, approve in one, then try approving in the other → refused (already decided).
 
@@ -73,9 +75,9 @@ Expected: the audit log banner turns **red, "Chain broken at entry #1"**, and ev
 Extra terminal: `uv run uvicorn dispute_desk.app:app --port 8200` (set `SELLER_PASSWORD` in `.env`).
 
 1. Open http://localhost:5173/seller, log in with `SELLER_PASSWORD`. The header says **Dispute desk · Seller side** in teal, not the buyer's inbox.
-2. Paste `PP-R-ELT-10193319` → **Fetch from PayPal**. Expected: reason "item not received", 3.50 of 10.80 USD, the buyer's message, five green receipt checks, suggestion **Refund 3.50 USD** (the receipt proves authorization, not delivery).
+2. Paste your fresh dispute id (`PP-R-…`, see `docs/your-todo.md` step 4) → **Fetch from PayPal**. Expected: the reason, amount and the buyer's message; the buyer's receipt checked **by the desk itself** (green checks, including the device signature and the outside timestamp); a suggested response. For "item not received" it suggests a refund unless you add delivery proof (the receipt proves authorization, not delivery); for "unauthorized" the receipt is the main evidence.
 3. Add a carrier and tracking number → **Save delivery proof**: the suggestion changes to **Contest with evidence** and the note mentions the tracking number.
-4. **Do not press "Send to PayPal" on this case** until the demo recording: it changes the real sandbox case. To try sending, open a second dispute (ideally reason "unauthorized") on another paid order and use that one.
+4. **Do not press "Send to PayPal" on this case** until the demo recording: it changes the sandbox case for good. To try sending, open a second dispute on another paid order and use that one.
 5. Tamper the buyer's log (step 5), then **Refresh from PayPal**: the receipt checks go red and the suggestion weakens.
 
 ## 6. Guard hooks (~3 min)
@@ -93,21 +95,50 @@ In T4, try to make the agent misbehave:
 4. Revoke Office bot → its next call is refused; the default agent keeps shopping.
 5. Press **Stop all agents** → both refused, waiting carts closed. Turn back on (passkey).
 
+## 8. Ordinary web shop: the checkout guard (~10 min)
+
+The agent shops on a normal-looking shop that signs nothing and knows nothing about agents.
+
+1. Extra terminal: `uv run uvicorn demo.webshop.app:app --port 8300` (Greenleaf Paper Co., http://greenleaf.localhost:8300).
+2. Web app → **Agents** → new agent, kind **Shops on websites (checkout guard)**, cap 100 USD (Touch ID). Copy the key.
+3. New terminal:
+   ```bash
+   cd demo/browser-agent-workspace
+   export GUARD_AGENT_KEY=<the key you copied>
+   claude          # /mcp should show "checkout-guard" connected; a Chrome window opens on first use
+   ```
+4. Ask: *"Buy 10 reams of A4 copy paper from greenleaf.localhost, max 60 USD including shipping and tax, valid today."* Approve the permission (Touch ID).
+
+| Check | Expected |
+|---|---|
+| The agent browses, fills the cart, goes to checkout | You see it happen in the Chrome window |
+| It clicks **Pay with PayPal** before approval | **Blocked** by the guard; the agent is told to call `checkout_ready` |
+| `checkout_ready` | The guard reads the cart and totals itself: 42.79 USD with shipping and tax; held for you even though it is small |
+| The cart page | Amber note "this shop does not sign its carts", **the guard's screenshot of the checkout page**, shipping and tax lines |
+| Approve with Touch ID | Payment unlocks for this exact cart; PayPal opens in the Chrome window |
+| Ask the agent to add pens afterwards | Payment locks again |
+
+Without `PAYPAL_CLIENT_ID` for the shop, its PayPal button goes to a sandbox error page: that is fine, the point is that it opens only after your approval.
+
 ## What to write down
 
 For each scenario: pass/fail, time from prompt to decision, anything confusing on screen, and one line you would say over it in the video. Put findings in `docs/week1-findings.md` or a new `docs/test-notes.md`.
 
 ## Video beat sheet (from these scenarios)
 
-| Beat | Scenario | Seconds |
-|---|---|---|
-| Problem + signed permission | 1 (first half) | 20 |
-| Allow + receipt | 1 | 25 |
-| Block | 2 | 25 |
-| Inject | 3b (+ 3a if the agent's refusal is clean) | 40 |
-| Escalate, one click | 4 | 20 |
-| Dispute: seller imports the case, sees the verified buyer receipt, picks a response | 5b | 40 |
-| Fleet: two agents shopping, one revoked, the other keeps going | 7 | 15 |
-| Close: real vs simulated | — | 10 |
+Under 3 minutes. Pre-record the slow parts (agent thinking, PayPal login) and cut them.
 
-Total is over 3 minutes with the fleet beat: trim Block and Inject by ~10 s each.
+| Beat | Scenario | Seconds | Say |
+|---|---|---|---|
+| Problem | — | 10 | "Agents can fill carts. Giving one your wallet is all or nothing." |
+| Signed permission (Touch ID) | 1 | 15 | "I give it a permission, not my wallet, signed on my own device." |
+| Allow + receipt | 1 | 20 | "In policy: it pays, and gets a receipt anyone can verify." |
+| Block | 2 | 10 | "Over budget: blocked by plain code, no AI involved." |
+| Fooled agent | 3b | 25 | "A poisoned page tricks the agent; the gateway catches both attacks." |
+| Held cart, notification, the AI's own words, approve | 4 | 25 | "When in doubt it asks me, and shows exactly why." |
+| Ordinary shop: PayPal locked until I approve | 8 | 30 | "Works on normal shops too: payment stays locked until I approve this exact cart." |
+| Dispute desk uses the receipt | 5b | 25 | "The seller verifies my receipt on its own and answers PayPal with evidence." |
+| Real vs simulated | — | 10 | README table |
+| **Total** | | **170** | |
+
+Optional, if done: a 10-second clip of the real purchase (`docs/live-purchase.md`) instead of part of the ordinary-shop beat. Cut Block if over time.

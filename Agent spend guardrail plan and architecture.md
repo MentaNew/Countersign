@@ -1,6 +1,6 @@
 # Agent Spend Guardrail + Dispute Desk: plan, architecture and next steps
 
-Prepared October 15, 2026 for the "Build What's Next with PayPal and AI" hackathon (submissions close **November 12, 2026**; winners announced December 21, per PayPal's announcement). Companion file: *Agent spend guardrail discussion notes.md* (the reasoning, evidence and sources behind this plan).
+Prepared October 15, 2026 for the "Build What's Next with PayPal and AI" hackathon (submissions close **November 12, 2026**; winners announced December 21, per PayPal's announcement).
 
 ---
 
@@ -98,7 +98,7 @@ A PayPal payment needs two things from two parties: the **seller's API keys** cr
 
 A self-hosted gateway run by the buyer's company alone would still need a way to pay arbitrary sellers without their keys: the seller's checkout plus the buyer's saved consent (as above), PayPal's partner `payee` feature (permissions unverified), or Payouts (not a purchase). PayPal is the natural host.
 
-**Positioning against PayPal's own agent products.** PayPal Agent Ready (October 2025) is **merchant-side**: it lets PayPal/Braintree merchants accept payments from ChatGPT (ACP) and Google AI Mode/Gemini (UCP). Its public pages do not cover the buyer side: limits, intent checks, approvals and authorization evidence for disputes. Pitch line: *"Agent Ready lets shops accept agents. This is the other half: it lets people and companies control what their agents may buy, with proof for disputes."* (Based on public pages; absence of evidence, not proof.) Protocol landscape and sources: discussion notes, section 10.
+**Positioning against PayPal's own agent products.** PayPal Agent Ready (October 2025) is **merchant-side**: it lets PayPal/Braintree merchants accept payments from ChatGPT (ACP) and Google AI Mode/Gemini (UCP). Its public pages do not cover the buyer side: limits, intent checks, approvals and authorization evidence for disputes. Pitch line: *"Agent Ready lets shops accept agents. This is the other half: it lets people and companies control what their agents may buy, with proof for disputes."* (Based on public pages; absence of evidence, not proof.)
 
 ### 3.3 Flow
 
