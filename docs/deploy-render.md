@@ -69,6 +69,12 @@ The desk verifies each webhook's PayPal signature with that id; unverified ones 
 
 The agent's MCP address is `https://spend-guardrail-gw.onrender.com/mcp/` with `Authorization: Bearer <key>`. Use the hosted `AGENT_API_KEY`, or better, create an agent on the hosted **Agents** page and use its key.
 
+## Rehearsed locally (Nov 5)
+
+The exact committed code was built and started with the commands in `render.yaml`, fresh secrets from `scripts/render_secrets.py`, a `postgresql://` database URL and HTTPS public addresses: all services started, and a full purchase passed (sign-in with the generated password, agent key, sandbox PayPal order, receipt, shop signatures from `MERCHANT_KEY_SEED`, AP2 mandates, desk sign-in, HSTS, example password refused).
+
+Not testable before deploying: whether Render's rewrite passes the sign-in cookie through. The web app handles both: it uses the HttpOnly cookie when it works, and otherwise keeps the session token for the open tab only (tested with a proxy that drops cookies).
+
 ## What the hosted version adds (P1.6)
 
 - Keys from secret settings (`SIGNING_KEY_PEM`, `AP2_SIGNING_KEY_PEM`, `MERCHANT_KEY_SEED`), never written to disk there.

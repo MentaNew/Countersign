@@ -222,14 +222,46 @@ export class ApiError extends Error {
 
 const PUBLIC = ['/api/login', '/api/login/passkey', '/api/login/passkey/options']
 
+// Fallback when the cookie does not reach the gateway (e.g. a hosting proxy that drops
+// cookies): keep the session token for this tab only and send it as a Bearer token.
+const TAB_KEY = 'guardrail.tab-session'
+let tabToken: string | null = (() => {
+  try {
+    return sessionStorage.getItem(TAB_KEY)
+  } catch {
+    return null
+  }
+})()
+
+function setTabToken(token: string | null) {
+  tabToken = token
+  try {
+    if (token) sessionStorage.setItem(TAB_KEY, token)
+    else sessionStorage.removeItem(TAB_KEY)
+  } catch {
+    /* storage unavailable: the token lives in memory only */
+  }
+}
+
+/** After signing in: use the cookie if it works, otherwise this tab's copy of the token. */
+async function adoptSession(token: string) {
+  setTabToken(null)
+  const viaCookie = await fetch('/api/session', { credentials: 'same-origin' })
+  if (!viaCookie.ok) setTabToken(token)
+}
+
 async function call<T>(method: string, path: string, body?: unknown): Promise<T> {
   // The extra header proves the request comes from this app: another website cannot add it
   // without the browser asking the gateway first, so it cannot act with your cookie.
   const headers: Record<string, string> = { 'Content-Type': 'application/json', 'X-Guardrail-Request': '1' }
+  if (tabToken && !PUBLIC.includes(path)) headers.Authorization = `Bearer ${tabToken}`
   const res = await fetch(path, {
     method, headers, credentials: 'same-origin', body: body ? JSON.stringify(body) : undefined,
   })
-  if (res.status === 401 && !PUBLIC.includes(path)) setAuth('out')
+  if (res.status === 401 && !PUBLIC.includes(path)) {
+    setTabToken(null)
+    setAuth('out')
+  }
   if (!res.ok) {
     let detail = res.statusText
     try {
@@ -253,11 +285,24 @@ export async function checkSession() {
 }
 
 export const api = {
-  login: (password: string) => call<{ user: string }>('POST', '/api/login', { password }),
+  login: async (password: string) => {
+    const r = await call<{ user: string; token: string }>('POST', '/api/login', { password })
+    await adoptSession(r.token)
+    return r
+  },
   passkeySignInOptions: () => call<ApprovalOptions & { nonce: string }>('POST', '/api/login/passkey/options'),
-  passkeySignIn: (nonce: string, credential: unknown) =>
-    call<{ user: string }>('POST', '/api/login/passkey', { nonce, credential }),
-  logout: () => call<{ ok: boolean }>('POST', '/api/logout'),
+  passkeySignIn: async (nonce: string, credential: unknown) => {
+    const r = await call<{ user: string; token: string }>('POST', '/api/login/passkey', { nonce, credential })
+    await adoptSession(r.token)
+    return r
+  },
+  logout: async () => {
+    try {
+      return await call<{ ok: boolean }>('POST', '/api/logout')
+    } finally {
+      setTabToken(null)
+    }
+  },
   sessions: () => call<SessionInfo[]>('GET', '/api/sessions'),
   endSession: (id: string) => call<{ ok: boolean }>('POST', `/api/sessions/${id}/end`),
   endOtherSessions: () => call<{ ended: number }>('POST', '/api/sessions/end-others'),

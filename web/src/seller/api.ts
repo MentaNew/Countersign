@@ -105,13 +105,37 @@ try {
   /* storage unavailable */
 }
 
+// Same fallback as the buyer app: this tab's copy of the token if the cookie does not work.
+const TAB_KEY = 'desk.tab-session'
+let tabToken: string | null = (() => {
+  try {
+    return sessionStorage.getItem(TAB_KEY)
+  } catch {
+    return null
+  }
+})()
+
+function setTabToken(token: string | null) {
+  tabToken = token
+  try {
+    if (token) sessionStorage.setItem(TAB_KEY, token)
+    else sessionStorage.removeItem(TAB_KEY)
+  } catch {
+    /* storage unavailable */
+  }
+}
+
 async function call<T>(method: string, path: string, body?: unknown): Promise<T> {
   // The extra header proves the request comes from this app (blocks cross-site requests).
   const headers: Record<string, string> = { 'Content-Type': 'application/json', 'X-Guardrail-Request': '1' }
+  if (tabToken && path !== '/login') headers.Authorization = `Bearer ${tabToken}`
   const res = await fetch(`/desk/api${path}`, {
     method, headers, credentials: 'same-origin', body: body ? JSON.stringify(body) : undefined,
   })
-  if (res.status === 401 && path !== '/login') setSellerAuth(false)
+  if (res.status === 401 && path !== '/login') {
+    setTabToken(null)
+    setSellerAuth(false)
+  }
   if (!res.ok) {
     let detail = res.statusText
     try {
@@ -134,8 +158,20 @@ export async function checkSellerSession() {
 }
 
 export const desk = {
-  login: (password: string) => call<{ user: string }>('POST', '/login', { password }),
-  logout: () => call<{ ok: boolean }>('POST', '/logout'),
+  login: async (password: string) => {
+    const r = await call<{ user: string; token: string }>('POST', '/login', { password })
+    setTabToken(null)
+    const viaCookie = await fetch('/desk/api/session', { credentials: 'same-origin' })
+    if (!viaCookie.ok) setTabToken(r.token)
+    return r
+  },
+  logout: async () => {
+    try {
+      return await call<{ ok: boolean }>('POST', '/logout')
+    } finally {
+      setTabToken(null)
+    }
+  },
   list: () => call<DeskSummary[]>('GET', '/disputes'),
   get: (id: string) => call<DeskDispute>('GET', `/disputes/${id}`),
   importCase: (dispute_id: string) => call<DeskDispute>('POST', '/disputes/import', { dispute_id }),
