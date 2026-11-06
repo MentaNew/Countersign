@@ -3,7 +3,8 @@
 # generate them with `uv run python scripts/render_secrets.py`.
 #
 # If Render adds a suffix to a service's URL because the name is taken, update the URLs below
-# (and the web app's rewrite rules) to the real ones, then redeploy.
+# (and the web app's rewrite rules) to the real ones, then redeploy. This deployment: the name
+# "spend-guardrail" was taken, so the web app is https://spend-guardrail-ttdy.onrender.com.
 
 databases:
   - name: spend-guardrail-db
@@ -38,9 +39,9 @@ services:
       - key: PUBLIC_BASE_URL
         value: https://spend-guardrail-gw.onrender.com
       - key: WEB_BASE_URL
-        value: https://spend-guardrail.onrender.com
+        value: https://spend-guardrail-ttdy.onrender.com
       - key: WEBAUTHN_RP_ID          # passkeys belong to the web app's address
-        value: spend-guardrail.onrender.com
+        value: spend-guardrail-ttdy.onrender.com
       - key: MERCHANT_BASE_URL
         value: https://spend-guardrail-shops.onrender.com
       - key: PAYPAL_BASE_URL
@@ -89,7 +90,7 @@ services:
       - key: DESK_PUBLIC_URL
         value: https://spend-guardrail-desk.onrender.com
       - key: WEB_BASE_URL
-        value: https://spend-guardrail.onrender.com
+        value: https://spend-guardrail-ttdy.onrender.com
       - key: PAYPAL_BASE_URL
         value: https://api-m.sandbox.paypal.com
       - key: SELLER_PASSWORD

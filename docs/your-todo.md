@@ -71,7 +71,7 @@ Full guide with screenshots-level detail: `docs/deploy-render.md`. Render can re
    - `spend-guardrail-shops`: `MERCHANT_KEY_SEED` from `render-secrets.env`.
 5. **Apply.** First builds take ~5 minutes. Each service shows *Live* when ready.
 6. **Check the addresses.** If Render added a suffix to a name (e.g. `spend-guardrail-gw-ab12`), tell me the real addresses: I will update `render.yaml` and you push.
-7. **Open the web app** (`https://spend-guardrail.onrender.com` or with suffix) → sign in with the hosted `USER_PASSWORD` → Security → **add a passkey there** (your local one does not work on another address).
+7. **Open the web app** (**https://spend-guardrail-ttdy.onrender.com**; `spend-guardrail.onrender.com` belongs to someone else) → sign in with the hosted `USER_PASSWORD` → Security → **add a passkey there** (your local one does not work on another address).
 8. **AI checks online (optional):** the online gateway uses the offline checker (`VERIFIER=stub`, no Groq calls). For the real AI checks: gateway → *Environment* → set `VERIFIER=llm` and `GROQ_API_KEY` (from `.env`). Each held cart then costs about one Groq call.
 9. **PayPal webhook** (disputes arrive by themselves): https://developer.paypal.com → *Apps & Credentials* → your sandbox app → *Webhooks* → *Add webhook*:
    - URL: `https://spend-guardrail-desk.onrender.com/webhooks/paypal` (or with suffix)

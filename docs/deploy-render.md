@@ -4,7 +4,7 @@ Everything in this repo runs on Render's free plan: one Postgres, three small Py
 
 | Piece | Render service | Address (if the names are free) |
 |---|---|---|
-| Web app (your screen, and `/seller`) | `spend-guardrail` (static) | https://spend-guardrail.onrender.com |
+| Web app (your screen, and `/seller`) | `spend-guardrail` (static) | https://spend-guardrail-ttdy.onrender.com (the plain name was taken by another Render user: never sign in at `spend-guardrail.onrender.com`) |
 | Gateway (agents connect to `/mcp`) | `spend-guardrail-gw` | https://spend-guardrail-gw.onrender.com |
 | Dispute desk (seller side, PayPal webhooks) | `spend-guardrail-desk` | https://spend-guardrail-desk.onrender.com |
 | Demo shops | `spend-guardrail-shops` | https://spend-guardrail-shops.onrender.com |
