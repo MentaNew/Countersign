@@ -102,10 +102,15 @@ async def run(out_dir: Path) -> int:
                 await asyncio.sleep(wait)
 
             async def click(text: str) -> bool:
+                """Click the first button containing `text`, waiting up to 8 s for it to render."""
                 js = ("(() => { const b=[...document.querySelectorAll('button')]"
-                      f".find(x=>x.textContent.includes({json.dumps(text)})); if(!b) return false;"
+                      f".find(x=>x.textContent.includes({json.dumps(text)}) && !x.disabled); if(!b) return false;"
                       " b.click(); return true })()")
-                return (await cmd("Runtime.evaluate", expression=js))["result"]["value"]
+                for _ in range(40):
+                    if (await cmd("Runtime.evaluate", expression=js))["result"]["value"]:
+                        return True
+                    await asyncio.sleep(0.2)
+                return False
 
             async def shot(name: str):
                 r = await cmd("Page.captureScreenshot", format="png", captureBeyondViewport=True)

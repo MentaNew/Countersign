@@ -7,6 +7,12 @@ export function navigate(to: string) {
   window.dispatchEvent(new PopStateEvent('popstate'))
 }
 
+/** Change the address without adding a history entry (filters, open drawer). */
+export function replace(to: string) {
+  window.history.replaceState(null, '', to)
+  window.dispatchEvent(new PopStateEvent('popstate'))
+}
+
 export function useLocation(): { path: string; query: URLSearchParams } {
   // Track path + query so /log -> /log?intent_id=... re-renders too.
   const [href, setHref] = useState(window.location.pathname + window.location.search)

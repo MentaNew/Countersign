@@ -29,7 +29,7 @@ export default function Login() {
   return (
     <main className="login">
       <form className="card" onSubmit={submit}>
-        <h1>Spend Guardrail</h1>
+        <div className="brand"><img src="/favicon.svg" alt="" width={26} height={26} /> <h1>Spend Guardrail</h1></div>
         <p className="muted">
           Sign in as the person the agent buys for. Only you can approve what it may buy; the agent
           has no access to this screen.

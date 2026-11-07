@@ -6,7 +6,7 @@ Everything only you can do, in order. Deadline: **Nov 12** (Devpost). Times are 
 |---|---|---|---|
 | 1 | Commit and push the Nov 2–3 changes | 5 min | to do |
 | 2 | Try the new things locally | 20 min | to do |
-| 3 | Put it online on Render (free) | 45–60 min | to do |
+| 3 | Put it online on Render (free) | 45–60 min | ✅ live Nov 6 at https://spend-guardrail-ttdy.onrender.com; passkey + webhook left |
 | 4 | Fresh sandbox dispute for the video | 25 min | to do |
 | 5 | Real purchase (optional, real money) | 30 min | optional |
 | 6 | Video | half a day | Nov 5–10 |

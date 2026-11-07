@@ -2,9 +2,9 @@ import { useState } from 'react'
 import { api } from '../api'
 import { describeError, signApproval } from '../passkey'
 import { Link } from '../router'
-import { Badge, Card, Hash, Notice, Page, money, usePoll, when } from '../ui'
+import { Badge, Card, Hash, Monogram, Notice, Page, Seal, money, shopName, usePoll, when } from '../ui'
 
-export default function IntentPage({ id }: { id: string }) {
+export function IntentDetail({ id }: { id: string }) {
   const intent = usePoll(() => api.intent(id), [id])
   const purchases = usePoll(() => api.purchases(id), [id])
   const keys = usePoll(() => api.passkeys(), [], 30000)
@@ -41,12 +41,14 @@ export default function IntentPage({ id }: { id: string }) {
   }
 
   const it = intent.data
-  if (!it) return <Page title="Purchase permission">{intent.error ? <Notice tone="bad">{intent.error}</Notice> : <p className="muted">Loading…</p>}</Page>
+  if (!it) return intent.error ? <Notice tone="bad">{intent.error}</Notice> : <p className="muted">Loading…</p>
   const m = it.mandate
+  const spent = (purchases.data ?? []).filter((p) => ['authorized', 'ordered', 'captured', 'payment_reported'].includes(p.status))
+    .reduce((s, p) => s + Number(p.total), 0)
 
   return (
-    <Page title="Purchase permission" kicker={<>Intent <code>{it.intent_id}</code> <Badge value={it.status} /></>}>
-      <Card title="Your agent asked for">
+    <>
+      <Card title={<>Your agent asked for <span className="meta">{it.status === 'active' && <Seal human signed={it.user_signed} />}</span></>}>
         <blockquote className="quote">{it.user_text}</blockquote>
       </Card>
 
@@ -54,7 +56,7 @@ export default function IntentPage({ id }: { id: string }) {
         <pre className="summary">{it.summary}</pre>
         <dl className="facts">
           <div><dt>Items</dt><dd>{m.items.map((x, i) => <div key={i}>#{i} · {x.qty} × {x.description}{x.max_unit_price && ` (≤ ${money(x.max_unit_price)} each)`}</div>)}</dd></div>
-          <div><dt>Total budget</dt><dd>{money(m.max_total)}</dd></div>
+          <div><dt>Total budget</dt><dd>{money(m.max_total)}<div className="muted small">{spent.toFixed(2)} used so far (approved carts)</div></dd></div>
           <div><dt>Ask me above</dt><dd>{m.approval_above ? money(m.approval_above) : 'never'}</dd></div>
           <div><dt>Merchants</dt><dd>{m.merchants.join(', ')}</dd></div>
           <div><dt>Max purchases</dt><dd>{m.max_purchases}</dd></div>
@@ -91,14 +93,13 @@ export default function IntentPage({ id }: { id: string }) {
         {purchases.data?.length ? (
           <div className="table-wrap">
             <table>
-              <thead><tr><th>When</th><th>Merchant</th><th className="num">Total</th><th>Decision</th><th>Status</th></tr></thead>
+              <thead><tr><th>When</th><th>Shop</th><th className="num">Total</th><th>Status</th></tr></thead>
               <tbody>
                 {purchases.data.map((p) => (
                   <tr key={p.purchase_id}>
                     <td><Link href={`/purchases/${p.purchase_id}`}>{when(p.created_at)}</Link></td>
-                    <td>{p.merchant_id}</td>
-                    <td className="num">{p.total} {p.currency}</td>
-                    <td><Badge value={p.decision} /></td>
+                    <td><span className="kind"><Monogram name={p.merchant_id} />{shopName(p.merchant_id)}</span></td>
+                    <td className="num">{Number(p.total).toFixed(2)} {p.currency}</td>
                     <td><Badge value={p.status} /></td>
                   </tr>
                 ))}
@@ -108,6 +109,14 @@ export default function IntentPage({ id }: { id: string }) {
         ) : <p className="muted">None yet.</p>}
         <p><Link href={`/log?intent_id=${it.intent_id}`}>Audit log for this permission →</Link></p>
       </Card>
+    </>
+  )
+}
+
+export default function IntentPage({ id }: { id: string }) {
+  return (
+    <Page title="Purchase permission" kicker={<>Permission <code>{id}</code></>}>
+      <IntentDetail id={id} />
     </Page>
   )
 }

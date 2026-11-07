@@ -1,3 +1,4 @@
+import { Icon } from './icons'
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import type { CheckResult, Line, Money, Verdict } from './api'
 
@@ -34,7 +35,7 @@ export const when = (iso: string | null | undefined) =>
   iso ? new Date(iso).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }) : '—'
 
 const STATUS_TONE: Record<string, string> = {
-  approve: 'ok', active: 'ok', revoked: 'bad', stopped: 'bad', ordered: 'ok', captured: 'ok', authorized: 'ok',
+  approve: 'ok', active: 'ok', revoked: 'neutral', stopped: 'bad', ordered: 'ok', captured: 'ok', authorized: 'ok',
   escalate: 'warn', pending_user: 'warn', pending_approval: 'warn',
   block: 'bad', blocked: 'bad', rejected: 'bad', failed: 'bad', approval_expired: 'bad', cancelled: 'neutral',
   payment_reported: 'warn',
@@ -197,4 +198,66 @@ export function VerdictPanel({ v, texts }: { v: Verdict; texts: string[] }) {
       )}
     </div>
   )
+}
+
+/** A shop's initials on a neutral tint: identity only, never data. */
+export function Monogram({ name, size }: { name: string; size?: 'lg' }) {
+  const base = name.replace(/^https?:\/\//, '').replace(/^www\./, '').split(/[./]/)[0]
+  const parts = base.split(/[-_\s]+/).filter(Boolean)
+  const text = (parts.length > 1 ? parts[0][0] + parts[1][0] : base.slice(0, 2)).toUpperCase()
+  return <span className={`mono-tile ${size ?? ''}`} aria-hidden>{text}</span>
+}
+
+/** How an approval was made: signed on the person's device, a password session, or automatically by policy. */
+export function Seal({ signed, human, short }: { signed?: boolean; human: boolean; short?: boolean }) {
+  if (!human) return <span className="seal auto" title="Approved automatically: inside your permission and below your ask-me amount"><Icon name="bolt" />{short ? 'auto' : 'Automatic, within your rules'}</span>
+  if (signed) return <span className="seal signed" title="Signed on your own device with your passkey"><Icon name="fingerprint" />{short ? 'passkey' : 'Signed with your passkey'}</span>
+  return <span className="seal password" title="Approved in a password session: no device signature"><Icon name="key" />{short ? 'password' : 'Password only, not device-signed'}</span>
+}
+
+/** Short shop name for display: host without www. */
+export const shopName = (id: string) => id.replace(/^https?:\/\//, '').replace(/^www\./, '')
+
+export const ago = (iso: string | null | undefined) => {
+  if (!iso) return '—'
+  const s = Math.round((Date.now() - new Date(iso).getTime()) / 1000)
+  if (s < 60) return 'just now'
+  if (s < 3600) return `${Math.floor(s / 60)} min ago`
+  if (s < 86400) return `${Math.floor(s / 3600)} h ago`
+  return new Date(iso).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })
+}
+
+const CHECK_PLAIN: Record<string, string> = {
+  lines_in_intent: 'not part of your permission',
+  budget: 'over your budget',
+  quantity: 'more than you allowed',
+  merchant_allowed: 'shop not in your permission',
+  unit_price: 'price above your limit',
+  currency: 'wrong currency',
+  not_expired: 'permission expired',
+  purchase_count: 'too many purchases under this permission',
+  agent_spend_cap: "agent's 30-day cap reached",
+  agent_active: 'agent switched off',
+  intent_agent_match: 'permission belongs to another agent',
+  merchant_signed_cart: "shop's signature check failed",
+  known_products: 'product not in the shop catalog',
+  page_cart_adds_up: "the page's totals don't add up",
+  checkout_on_shop_site: "checkout page is not on the shop's site",
+  non_empty_cart: 'empty cart',
+}
+
+/** A gateway reason in plain words (the exact text stays available next to it). */
+export function plainReason(r: string): string {
+  const s = r.trim()
+  if (/^cart may not match the intent/.test(s)) return "may not match what you asked for"
+  if (/^cart may contain unrequested items/.test(s)) return "may include items you didn't ask for"
+  if (/^lines that do not look like what was requested: /.test(s)) return `doesn't look like what you asked for: ${s.split(': ').slice(1).join(': ')}`
+  if (/^merchant text the agent used looks like instructions/.test(s)) return 'the shop page tried to give the agent instructions'
+  if (/is above the ask-me threshold/.test(s)) return `above your ask-me amount (${s.split('threshold ').pop()})`
+  if (/^cart read from the shop's page/.test(s)) return "this shop doesn't sign carts: needs your passkey"
+  if (/^all checks passed$/.test(s)) return 'within your permission'
+  if (/^semantic check unavailable/.test(s)) return 'AI check unavailable: held for you'
+  const m = s.match(/^([a-z_]+): /)
+  if (m && CHECK_PLAIN[m[1]]) return CHECK_PLAIN[m[1]]
+  return s
 }

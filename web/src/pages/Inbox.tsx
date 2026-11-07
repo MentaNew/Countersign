@@ -5,10 +5,11 @@ import { Badge, Card, Page, usePoll, when } from '../ui'
 import { enableNotifications, notificationPermission } from '../waiting'
 
 /** What to set up before letting an agent spend real money. Disappears when everything is done. */
-function SetupChecklist() {
+export function SetupChecklist() {
   const keys = usePoll(() => api.passkeys(), [], 30000)
   const agents = usePoll(() => api.agents(), [], 30000)
   const [perm, setPerm] = useState(notificationPermission())
+  const [open, setOpen] = useState(false)
   if (!keys.data || !agents.data) return null
   const list = agents.data.agents
   const steps = [
@@ -41,17 +42,31 @@ function SetupChecklist() {
   ]
   const left = steps.filter((s) => !s.done).length
   if (!left) return null
+  const next = steps.find((s) => !s.done)!
+  const done = steps.length - left
   return (
-    <Card title={`Set up for real use · ${steps.length - left} of ${steps.length} done`}>
-      <ul className="checklist">
-        {steps.map((s) => (
-          <li key={s.title} className={s.done ? 'done' : ''}>
-            <span className="check-dot" aria-hidden>{s.done ? '✓' : ''}</span>
-            <span className="row-main">{s.title}<span className="row-sub">{s.why}</span></span>
-            {!s.done && <span className="row-meta">{s.action}</span>}
+    <Card title={<>Set up for real use <span className="meta">{done} of {steps.length} done</span></>}>
+      <div className="progress" aria-hidden><span style={{ width: `${(done / steps.length) * 100}%` }} /></div>
+      {open ? (
+        <ul className="checklist">
+          {steps.map((s) => (
+            <li key={s.title} className={s.done ? 'done' : ''}>
+              <span className="check-dot" aria-hidden>{s.done ? '✓' : ''}</span>
+              <span className="row-main">{s.title}<span className="row-sub">{s.why}</span></span>
+              {!s.done && <span className="row-meta">{s.action}</span>}
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <ul className="checklist">
+          <li>
+            <span className="check-dot" aria-hidden />
+            <span className="row-main"><span><span className="muted">Next: </span>{next.title}</span><span className="row-sub">{next.why}</span></span>
+            <span className="row-meta">{next.action}</span>
           </li>
-        ))}
-      </ul>
+        </ul>
+      )}
+      <button className="link small" onClick={() => setOpen((o) => !o)}>{open ? 'Show only the next step' : `Show all ${steps.length} steps`}</button>
     </Card>
   )
 }

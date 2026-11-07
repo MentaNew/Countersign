@@ -1083,7 +1083,14 @@ class Gateway:
             q = select(Purchase).order_by(Purchase.created_at.desc()).limit(limit)
             if intent_id:
                 q = q.where(Purchase.intent_id == intent_id)
-            return [self._purchase_view(p) for p in (await s.execute(q)).scalars()]
+            out = []
+            for p in (await s.execute(q)).scalars():
+                view = self._purchase_view(p)
+                # Same rule as get_purchase: a held cart past its approval window is expired.
+                if p.status == "pending_approval" and p.approval_expires_at and now() > p.approval_expires_at:
+                    view["status"] = "approval_expired"
+                out.append(view)
+            return out
 
     def _purchase_view(self, p: Purchase) -> dict[str, Any]:
         return {
