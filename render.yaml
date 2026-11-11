@@ -48,6 +48,10 @@ services:
         value: https://api-m.sandbox.paypal.com
       - key: VERIFIER                # stub = offline word overlap; llm = GroqCloud (needs key)
         value: stub
+      - key: DEMO_MODE               # judge mode: the scripted demo agent on the Inbox
+        value: "true"
+      - key: PASSKEY_REGISTRATION_OPEN   # set to false after the Dec 1 reset (shared judge login)
+        value: "true"
       - key: SIGNING_KEY_PEM
         sync: false
       - key: AP2_SIGNING_KEY_PEM

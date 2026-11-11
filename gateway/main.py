@@ -15,10 +15,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from mcp.server.transport_security import TransportSecuritySettings
 
 from gateway.api.auth import AgentKeyMiddleware, make_user_dependency
-from gateway.api.routes import build_paypal_router, build_router
+from gateway.api.routes import build_demo_router, build_paypal_router, build_router
 from gateway.catalog.client import HttpCatalog
 from gateway.config import Settings, get_settings
 from gateway.db.session import create_schema, make_engine, make_sessionmaker
+from gateway.demo import Demo
 from gateway.hosting import (
     RateLimit,
     SecurityHeaders,
@@ -131,8 +132,11 @@ def create_app(s: Settings | None = None, engine=None, **gateway_overrides) -> F
                            timedelta(hours=s.session_max_hours))
     app.state.logins = logins
     app.include_router(build_router(gw, s.user_password, make_user_dependency(logins), logins,
-                                    secure_cookie=s.web_base_url.startswith("https://")))
+                                    secure_cookie=s.web_base_url.startswith("https://"),
+                                    passkey_registration_open=s.passkey_registration_open))
     app.include_router(build_paypal_router(gw))
+    if s.demo_mode:
+        app.include_router(build_demo_router(Demo(gw, s.merchant_base_url), make_user_dependency(logins)))
     app.mount("/mcp", AgentKeyMiddleware(mcp_app, gw.authenticate_agent))
 
     @app.get("/.well-known/jwks.json")

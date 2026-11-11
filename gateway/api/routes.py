@@ -10,11 +10,18 @@ from pydantic import BaseModel
 
 from gateway.api.auth import DEMO_USER
 from gateway.logins import COOKIE, LoginSessions
+from gateway.paypal_actions import PaypalActions
 from gateway.service import Gateway, GatewayError, NotFound
 
 
 class Login(BaseModel):
     password: str
+
+
+class ActionDecision(BaseModel):
+    approve: bool
+    args_hash: str
+    webauthn: dict | None = None
 
 
 class PasskeySignIn(BaseModel):
@@ -51,7 +58,7 @@ class PasskeyRegistration(BaseModel):
 
 
 def build_router(gw: Gateway, user_password: str, require_user, logins: LoginSessions,
-                 secure_cookie: bool) -> APIRouter:
+                 secure_cookie: bool, passkey_registration_open: bool = True) -> APIRouter:
     api = APIRouter(prefix="/api")
     user = Depends(require_user)
 
@@ -134,9 +141,27 @@ def build_router(gw: Gateway, user_password: str, require_user, logins: LoginSes
     async def intent_approval_options(intent_id: str, who: str = user):
         return await run(gw.intent_approval_options(intent_id, who))
 
+    actions = PaypalActions(gw)
+
     @api.get("/waiting")
     async def waiting(_: str = user):
-        return await gw.waiting()
+        return [*(await gw.waiting()), *(await actions.waiting())]
+
+    @api.get("/paypal-actions")
+    async def paypal_actions(_: str = user):
+        return await actions.recent()
+
+    @api.get("/paypal-actions/{action_id}")
+    async def paypal_action(action_id: str, _: str = user):
+        return await run(actions.get(action_id))
+
+    @api.post("/paypal-actions/{action_id}/approval-options")
+    async def paypal_action_options(action_id: str, who: str = user):
+        return await run(actions.approval_options(action_id, who))
+
+    @api.post("/paypal-actions/{action_id}/decision")
+    async def paypal_action_decision(action_id: str, body: ActionDecision, who: str = user):
+        return await run(actions.decide(action_id, who, body.approve, body.args_hash, body.webauthn))
 
     @api.get("/purchases")
     async def purchases(intent_id: str | None = None, _: str = user):
@@ -159,12 +184,19 @@ def build_router(gw: Gateway, user_password: str, require_user, logins: LoginSes
     async def passkeys(who: str = user):
         return await gw.passkey_status(who)
 
+    def registration_open() -> None:
+        if not passkey_registration_open:
+            raise HTTPException(403, "Adding passkeys is turned off on this shared demo: everyone signs in with "
+                                     "the same password, so one visitor's passkey would lock the others out.")
+
     @api.post("/passkeys/register/options")
     async def passkey_options(who: str = user):
+        registration_open()
         return await run(gw.passkey_registration_options(who))
 
     @api.post("/passkeys/register")
     async def passkey_register(body: PasskeyRegistration, who: str = user):
+        registration_open()
         return await run(gw.register_passkey(who, body.credential, body.label))
 
     @api.get("/agents")
@@ -257,3 +289,34 @@ def build_paypal_router(gw: Gateway) -> APIRouter:
         return RedirectResponse(f"{gw.web_base_url}/")
 
     return r
+
+
+class DemoBuy(BaseModel):
+    intent_id: str
+    scenario: str
+
+
+def build_demo_router(demo, require_user) -> APIRouter:
+    """Judge mode (DEMO_MODE=true). Without it these routes do not exist (404)."""
+    api = APIRouter(prefix="/api/demo")
+    user = Depends(require_user)
+
+    async def run(coro):
+        try:
+            return await coro
+        except GatewayError as e:
+            raise HTTPException(409, str(e))
+
+    @api.get("")
+    async def state(_: str = user):
+        return await run(demo.state())
+
+    @api.post("/permission")
+    async def propose(_: str = user):
+        return await run(demo.propose())
+
+    @api.post("/buy")
+    async def buy(body: DemoBuy, _: str = user):
+        return await run(demo.buy(body.intent_id, body.scenario))
+
+    return api

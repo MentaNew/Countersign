@@ -14,7 +14,7 @@ export function SetupChecklist() {
   const list = agents.data.agents
   const steps = [
     {
-      done: keys.data.required,
+      done: keys.data.required || keys.data.passkeys.length > 0,
       title: 'Add a passkey',
       why: 'Only your fingerprint, face or security key can then approve what an agent buys.',
       action: <Link href="/security">Add one →</Link>,

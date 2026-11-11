@@ -64,8 +64,35 @@ export type PaymentConfirmation = {
   signature_valid?: boolean
 }
 
+/** A money-moving call to PayPal's own agent tools, held by the PayPal guard for the person's approval. */
+export type PaypalAction = {
+  action_id: string
+  agent_id: string | null
+  tool: string
+  arguments: Record<string, unknown>
+  args_hash: string
+  summary: string
+  reason: string | null
+  status: string
+  created_at: string
+  approval_expires_at: string | null
+  decided_by: string | null
+  user_signed: boolean
+  result: { text?: string } | null
+}
+
+/** Judge mode (DEMO_MODE on the gateway): a scripted demo agent the person drives from the Inbox. */
+export type DemoState = {
+  enabled: boolean
+  agent_name: string
+  request: string
+  verifier: string
+  permissions: { intent_id: string; status: string; created_at: string }[]
+  scenarios: { id: string; label: string; expect: string }[]
+}
+
 /** Something waiting for the person: a permission to review or a cart held for approval. */
-export type Waiting = { kind: 'intent' | 'cart'; id: string; path: string; title: string; text: string; created_at: string }
+export type Waiting = { kind: 'intent' | 'cart' | 'paypal_action'; id: string; path: string; title: string; text: string; created_at: string }
 
 /** One exchange with a model check, exactly as sent and received (kept for later inspection). */
 export type ModelExchange = {
@@ -307,6 +334,14 @@ export const api = {
   endSession: (id: string) => call<{ ok: boolean }>('POST', `/api/sessions/${id}/end`),
   endOtherSessions: () => call<{ ended: number }>('POST', '/api/sessions/end-others'),
   waiting: () => call<Waiting[]>('GET', '/api/waiting'),
+  demoState: () => call<DemoState>('GET', '/api/demo'),
+  paypalActions: () => call<PaypalAction[]>('GET', '/api/paypal-actions'),
+  paypalAction: (id: string) => call<PaypalAction>('GET', `/api/paypal-actions/${id}`),
+  paypalActionOptions: (id: string) => call<ApprovalOptions>('POST', `/api/paypal-actions/${id}/approval-options`),
+  decidePaypalAction: (id: string, approve: boolean, args_hash: string, webauthn?: unknown) =>
+    call<PaypalAction>('POST', `/api/paypal-actions/${id}/decision`, { approve, args_hash, webauthn }),
+  demoPropose: () => call<Intent>('POST', '/api/demo/permission'),
+  demoBuy: (intent_id: string, scenario: string) => call<Purchase>('POST', '/api/demo/buy', { intent_id, scenario }),
   intents: () => call<Intent[]>('GET', '/api/intents'),
   intent: (id: string) => call<Intent>('GET', `/api/intents/${id}`),
   decideIntent: (id: string, approve: boolean, webauthn?: unknown) =>

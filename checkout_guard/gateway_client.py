@@ -21,10 +21,10 @@ class GatewayClient:
         self._ids = itertools.count(1)
         self._public_key: str | None = None
 
-    async def call(self, tool: str, **arguments: Any) -> dict[str, Any]:
+    async def call(self, tool_name: str, /, **arguments: Any) -> dict[str, Any]:
         r = await self._http.post("/mcp/", headers=self._headers, json={
             "jsonrpc": "2.0", "id": next(self._ids), "method": "tools/call",
-            "params": {"name": tool, "arguments": arguments}})
+            "params": {"name": tool_name, "arguments": arguments}})
         if r.status_code != 200:
             raise GatewayError(f"gateway refused ({r.status_code}): {r.text[:300]}")
         result = r.json().get("result") or {}

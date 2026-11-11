@@ -10,6 +10,7 @@ from pydantic import Field
 
 from gateway.api.auth import current_agent
 from gateway.domain import CartLineRequest, Mandate, MandateItem, Money, PageCart
+from gateway.paypal_actions import PaypalActions
 from gateway.service import Gateway, GatewayError
 
 INSTRUCTIONS = """Payment gateway for agent purchases. Workflow:
@@ -122,5 +123,37 @@ def create_mcp(gw: Gateway) -> MCPServer:
     async def get_log(intent_id: str) -> list[dict[str, Any]]:
         """Read-only audit log entries for one of your intents."""
         return await guarded(gw.agent_log(intent_id, current_agent.get()))
+
+    actions = PaypalActions(gw)
+
+    @mcp.tool()
+    async def request_paypal_action(
+        tool: str = Field(description="PayPal agent-toolkit tool name, e.g. create_refund"),
+        arguments: dict[str, Any] = Field(default_factory=dict, description="Its exact arguments"),
+        reason: str | None = None,
+    ) -> dict[str, Any]:
+        """For the PayPal guard: ask the person to approve one money-moving PayPal tool call."""
+        return await guarded(actions.request(current_agent.get(), tool, arguments, reason))
+
+    @mcp.tool()
+    async def get_paypal_action(action_id: str, wait_seconds: float = 0) -> dict[str, Any]:
+        """Status of a PayPal action request (pending_approval, approved, rejected, done...)."""
+        import asyncio as _a
+        deadline = _a.get_running_loop().time() + min(max(wait_seconds, 0), 60)
+        while True:
+            view = await guarded(actions.get(action_id, for_agent=True))
+            if view["status"] != "pending_approval" or _a.get_running_loop().time() >= deadline:
+                return view
+            await _a.sleep(1)
+
+    @mcp.tool()
+    async def claim_paypal_action(action_id: str, tool: str, arguments: dict[str, Any]) -> dict[str, Any]:
+        """For the PayPal guard: claim an approved request just before running it (exact args, once)."""
+        return await guarded(actions.claim(action_id, current_agent.get(), tool, arguments))
+
+    @mcp.tool()
+    async def report_paypal_action(action_id: str, ok: bool, result: dict[str, Any]) -> dict[str, Any]:
+        """For the PayPal guard: record what PayPal answered."""
+        return await guarded(actions.report(action_id, current_agent.get(), ok, result))
 
     return mcp

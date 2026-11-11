@@ -6,6 +6,10 @@ A payment gateway for AI agents. The user approves a signed permission ("intent"
 
 Built for the "Build What's Next with PayPal and AI" hackathon. Design: `Agent spend guardrail plan and architecture.md`. Status and roadmap: `docs/next-steps.md`.
 
+## Try it in 60 seconds (live)
+
+Open **https://spend-guardrail-ttdy.onrender.com** and sign in with the password from the Devpost testing instructions (free hosting: the first visit can take up to a minute to wake up). The Inbox has a **judge mode** card: a demo agent asks for a permission ("10 reams of A4 paper, max 60 USD, ask me above 40"), you approve it, then you make the agent try six carts. The gateway decides each one with the same checks any agent gets: an in-policy cart creates a real PayPal sandbox order, a premium cart and a poisoned product page wait for you, an over-budget cart and a shop you did not allow are blocked. Open any cart to see why, the AI's word-for-word replies, and the receipt.
+
 ## Run it locally
 
 Step-by-step guide with checks and troubleshooting: **`docs/run-locally.md`** (four elements for the buyer side, a fifth for the seller side). Short version:
@@ -63,6 +67,17 @@ Most shops do not sign carts or know about agents. For those, a **checkout guard
 
 Try it on the demo web shop (`demo/webshop`, http://greenleaf.localhost:8300) or a real one (`docs/live-purchase.md`).
 
+## A guardrail in front of PayPal's own agent tools
+
+PayPal publishes its own MCP server for agents (`@paypal/mcp`: orders, refunds, invoices, subscriptions, disputes). Given straight to an agent, every one of those tools runs the moment the agent calls it. The **PayPal guard** (`paypal_guard/`) sits in between:
+
+- the agent sees PayPal's tools unchanged; tools that only read (`list_…`, `get_…`, `show_…`, `search_…`) run directly;
+- every tool that moves money or changes the account is **held**: it shows up in your Inbox with the exact arguments ("Refund 12.50 USD of capture 2GG2…"), and you approve it with your passkey or reject it;
+- once approved, the guard runs that call **once, with exactly those arguments, within 30 minutes**; a changed argument needs a new approval; PayPal's answer is shown and logged;
+- the guard holds the PayPal credentials and the agent's gateway key; the agent holds neither.
+
+Try it with Claude Code: `cd demo/paypal-agent-workspace && export GUARD_AGENT_KEY=<an agent key from the Agents page> && claude`, then ask for example "create a product called Desk lamp" or "refund 5 USD of capture …". Needs Node (for `npx @paypal/mcp`) and the PayPal sandbox keys in `.env`.
+
 ## How well the checks work
 
 167 labelled carts (`docs/eval.md`), including 55 **held out** (written before any run and never used for tuning): wrong variants, disguised extras, subscriptions, pack sizes, and hidden instructions in other languages, fake system messages, base64 and role play. With the GroqCloud verifier: **0 of 114 carts that should have been stopped were paid without asking** (95% CI 0–3%); 6 of 53 good carts were held for a tap. Pack sizes ("12 Pack", "48 Count (Pack of 2)") are counted in code, not left to the model. Answers are cached, so the numbers reproduce without an API key.
@@ -74,6 +89,7 @@ Try it on the demo web shop (`demo/webshop`, http://greenleaf.localhost:8300) or
 | PayPal | Orders v2 (create, capture), Disputes API (read, refund offer, evidence) called live in the sandbox; webhook signature verification | Sandbox money; one sandbox business account plays every seller |
 | Shops | Real Shopify-style checkouts supported by the checkout guard (`docs/live-purchase.md`) | Demo merchants and the Greenleaf web shop are fictional |
 | AI checks | GroqCloud `openai/gpt-oss-20b` and `meta-llama/llama-prompt-guard-2-86m`; probabilities are self-reported, not calibrated | Offline word-overlap stub for tests |
+| PayPal agent tools | PayPal's official MCP server `@paypal/mcp` 1.8.1 (sandbox), behind the PayPal guard | — |
 | Agent | Claude (Claude Code / Agent SDK) through MCP | The "fooled agent" demo is scripted: a real Claude refuses the planted injection |
 | Approvals | WebAuthn passkeys (Touch ID / Face ID) | Tests use Chrome's virtual authenticator |
 | Outside witness | RFC 3161 timestamps from DigiCert and FreeTSA | — |
@@ -89,10 +105,11 @@ Try it on the demo web shop (`demo/webshop`, http://greenleaf.localhost:8300) or
 | `adapters/claude/` | `guarded-purchase` skill, guard hooks, Agent SDK runner |
 | `demo/` | Fictional merchants (one listing has a planted injection), agent workspace, smoke script, fooled-agent script |
 | `dispute_desk/` | Seller-side service: dispute intake (fetch by id, webhook), evidence packets, PayPal responses after human review. Own `desk` schema; reads buyer receipts only through the gateway's public endpoint |
+| `paypal_guard/`, `demo/paypal-agent-workspace/` | Guard in front of PayPal's official MCP server (stdio MCP proxy); Claude workspace that only has its tools |
 | `checkout_guard/` | Guarded browser for agents on ordinary shops (stdio MCP server, Playwright + Chrome) |
 | `eval/` | Labelled carts (`cases/` development, `heldout/` never tuned on), runner, cached model replies, viewer `show_case.py` |
 | `demo/webshop/`, `demo/browser-agent-workspace/` | Ordinary demo shop for browser agents; Claude workspace that only has the guard's tools |
-| `render.yaml`, `scripts/` | Free Render deployment (`docs/deploy-render.md`) and secret generation |
+| `render.yaml`, `scripts/` | Free Render deployment (`docs/deploy-render.md`), secret generation, `seed_demo.py` (fills a fresh database with the judge-mode story) |
 | `spikes/` | Week-1 PayPal sandbox checks |
 
 ## License

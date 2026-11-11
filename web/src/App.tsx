@@ -39,6 +39,25 @@ async function signOut() {
   }
 }
 
+/** Free hosting sleeps when idle: say so instead of a blank "Loading…" that looks broken. */
+function Waking() {
+  const [slow, setSlow] = useState(false)
+  useEffect(() => {
+    const t = setTimeout(() => setSlow(true), 3000)
+    return () => clearTimeout(t)
+  }, [])
+  return (
+    <main className="login">
+      <div className="card" style={{ maxWidth: 420, textAlign: 'center' }}>
+        <img src="/favicon.svg" alt="" width={28} height={28} />
+        <p style={{ margin: '10px 0 4px', fontWeight: 600 }}>{slow ? 'Waking the server up…' : 'Loading…'}</p>
+        {slow && <p className="muted small" style={{ margin: 0 }}>This demo runs on free hosting that sleeps when nobody uses it.
+          The first visit can take up to a minute; after that it is instant.</p>}
+      </div>
+    </main>
+  )
+}
+
 function NotFound() {
   return <main className="page"><div className="empty"><strong>Page not found</strong><Link href="/">Back to the inbox</Link></div></main>
 }
@@ -145,7 +164,7 @@ export default function App() {
 
   // Receipts are public so a seller or dispute analyst can verify them without logging in.
   const receipt = match('/receipts/:id', path)
-  if (auth === 'unknown' && !receipt) return <main className="login"><p className="muted">Loading…</p></main>
+  if (auth === 'unknown' && !receipt) return <Waking />
   if (!authed && !receipt) return <Login />
   if (!authed && receipt) return <ReceiptPage id={receipt.id} />
 

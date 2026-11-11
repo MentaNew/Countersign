@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "paypal-guard": {
+      "type": "stdio",
+      "command": "uv",
+      "args": ["run", "--project", "../..", "python", "-m", "paypal_guard"],
+      "env": {
+        "GUARD_GATEWAY_URL": "${GUARD_GATEWAY_URL:-http://localhost:8000}",
+        "GUARD_AGENT_KEY": "${GUARD_AGENT_KEY}"
+      }
+    }
+  }
+}

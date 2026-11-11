@@ -1,0 +1,18 @@
+{
+  "enabledMcpjsonServers": ["paypal-guard"],
+  "permissions": {
+    "allow": [
+      "mcp__paypal-guard"
+    ],
+    "deny": [
+      "Bash",
+      "WebFetch",
+      "WebSearch",
+      "Read(../../**)",
+      "Read(~/**)",
+      "Write",
+      "Edit",
+      "NotebookEdit"
+    ]
+  }
+}

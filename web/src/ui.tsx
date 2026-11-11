@@ -37,7 +37,7 @@ export const when = (iso: string | null | undefined) =>
 const STATUS_TONE: Record<string, string> = {
   approve: 'ok', active: 'ok', revoked: 'neutral', stopped: 'bad', ordered: 'ok', captured: 'ok', authorized: 'ok',
   escalate: 'warn', pending_user: 'warn', pending_approval: 'warn',
-  block: 'bad', blocked: 'bad', rejected: 'bad', failed: 'bad', approval_expired: 'bad', cancelled: 'neutral',
+  block: 'bad', blocked: 'bad', rejected: 'bad', failed: 'bad', approval_expired: 'bad', cancelled: 'neutral', done: 'ok', executing: 'warn', approved: 'ok',
   payment_reported: 'warn',
   // seller side
   verified: 'ok', contest: 'ok', 'evidence strong': 'ok', RESOLVED: 'ok',
@@ -49,7 +49,7 @@ const STATUS_TONE: Record<string, string> = {
 const STATUS_LABEL: Record<string, string> = {
   pending_user: 'awaiting you', pending_approval: 'awaiting you', approve: 'approved',
   escalate: 'escalated', block: 'blocked', ordered: 'order created', captured: 'paid',
-  approval_expired: 'approval expired', revoked: 'cancelled', payment_reported: 'paid (reported)',
+  approval_expired: 'approval expired', revoked: 'cancelled', payment_reported: 'paid (reported)', done: 'done in PayPal', executing: 'running',
   WAITING_FOR_SELLER_RESPONSE: 'your response needed', WAITING_FOR_BUYER_RESPONSE: 'waiting for buyer',
   UNDER_REVIEW: 'PayPal reviewing', RESOLVED: 'resolved', add_fulfillment: 'add delivery proof',
   contest: 'contest', refund: 'refund',

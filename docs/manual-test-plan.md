@@ -120,6 +120,24 @@ The agent shops on a normal-looking shop that signs nothing and knows nothing ab
 
 Without `PAYPAL_CLIENT_ID` for the shop, its PayPal button goes to a sandbox error page: that is fine, the point is that it opens only after your approval.
 
+## 9. PayPal's own agent tools, guarded (~8 min)
+
+Needs Node (for `npx`) and the PayPal sandbox keys in `.env`.
+
+1. Agents page → **New agent** (e.g. "PayPal assistant") → copy its key.
+2. `cd demo/paypal-agent-workspace && export GUARD_AGENT_KEY=<that key> && claude`
+3. Ask: *"List my last invoices."* → runs straight away (read-only).
+4. Ask: *"Create a product called Desk lamp, type PHYSICAL."* → Claude says it is held. The Inbox shows
+   **PayPal · create_product** with the exact arguments. Approve with your passkey.
+5. Tell Claude *"approved, go on"* → it calls the tool again; the guard runs it once; the drawer shows
+   **Done in PayPal** and PayPal's answer (a `PROD-…` id). Audit log: `paypal_action_requested → approved →
+   executing → done`.
+6. Ask for a refund of a capture id from an earlier sandbox order, then **Reject** it → Claude reports that nothing
+   was sent to PayPal.
+
+Expected: no money-moving call reaches PayPal without your approval of those exact arguments, and each approval
+works once.
+
 ## What to write down
 
 For each scenario: pass/fail, time from prompt to decision, anything confusing on screen, and one line you would say over it in the video. Put findings in `docs/week1-findings.md` or a new `docs/test-notes.md`.
@@ -130,15 +148,15 @@ Under 3 minutes. Pre-record the slow parts (agent thinking, PayPal login) and cu
 
 | Beat | Scenario | Seconds | Say |
 |---|---|---|---|
-| Problem | — | 10 | "Agents can fill carts. Giving one your wallet is all or nothing." |
-| Signed permission (Touch ID) | 1 | 15 | "I give it a permission, not my wallet, signed on my own device." |
-| Allow + receipt | 1 | 20 | "In policy: it pays, and gets a receipt anyone can verify." |
-| Block | 2 | 10 | "Over budget: blocked by plain code, no AI involved." |
-| Fooled agent | 3b | 25 | "A poisoned page tricks the agent; the gateway catches both attacks." |
-| Held cart, notification, the AI's own words, approve | 4 | 25 | "When in doubt it asks me, and shows exactly why." |
-| Ordinary shop: PayPal locked until I approve | 8 | 30 | "Works on normal shops too: payment stays locked until I approve this exact cart." |
-| Dispute desk uses the receipt | 5b | 25 | "The seller verifies my receipt on its own and answers PayPal with evidence." |
-| Real vs simulated | — | 10 | README table |
-| **Total** | | **170** | |
+| Problem | — | 10 | "Agents can fill carts and call PayPal's own tools. Giving one your wallet is all or nothing." |
+| Signed permission (Face ID on the phone) | 1 | 15 | "I give it a permission, not my wallet, signed on my own device." |
+| Allow + receipt | 1 / judge mode | 15 | "In policy: it pays, and gets a receipt anyone can verify." |
+| Block + fooled agent | 2, 3b / judge mode | 25 | "Over budget: blocked by plain code. A poisoned page tricks the agent; the gateway catches it." |
+| Held cart, the AI's own words, approve | 4 | 20 | "When in doubt it asks me, and shows exactly why." |
+| Ordinary shop: PayPal locked until I approve | 8 | 25 | "Works on normal shops too: payment stays locked until I approve this exact cart." |
+| PayPal's own agent tools, guarded | 9 | 25 | "Even PayPal's official agent tools: a refund waits for my Face ID, then runs once, exactly as approved." |
+| Dispute desk uses the receipt | 5b | 20 | "The seller verifies my receipt on its own and answers PayPal with evidence." |
+| Try it yourself | — | 5 | "Judges: the live site has a judge mode." |
+| **Total** | | **160** | |
 
 Optional, if done: a 10-second clip of the real purchase (`docs/live-purchase.md`) instead of part of the ordinary-shop beat. Cut Block if over time.

@@ -46,6 +46,10 @@ class Settings(BaseSettings):
     agent_api_key: str = "change-me-agent"
     user_password: str = "change-me-user"
     # Sign-in sessions end after this much inactivity, and at the latest after session_max_hours.
+    # Judge mode: a scripted demo agent the signed-in person can drive from the web app.
+    demo_mode: bool = False
+    # A shared demo login (judges): turn this off so one visitor's passkey cannot lock the others out.
+    passkey_registration_open: bool = True
     session_idle_minutes: int = 120
     session_max_hours: int = 12
     signing_key_path: str = "keys/gateway_ed25519.pem"

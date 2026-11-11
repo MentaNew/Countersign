@@ -1,16 +1,18 @@
 // The landing page: a work queue of carts and permissions, with saved views, a filter, keyboard triage
 // (j/k move, Enter open, Esc close, / search) and a drawer for the selected item (?open=<id>).
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { api, type Agent, type Intent, type Purchase } from '../api'
+import { api, type Agent, type Intent, type PaypalAction, type Purchase } from '../api'
+import PaypalActionDetail from '../cart/PaypalActionDetail'
 import PurchaseDetail, { CartHeader, type CartTab } from '../cart/PurchaseDetail'
 import { Icon } from '../icons'
 import { Link, replace, useLocation } from '../router'
 import { Badge, Monogram, Notice, Seal, ago, plainReason, shopName, usePoll, when } from '../ui'
 import { IntentDetail } from './IntentPage'
+import DemoPanel from './DemoPanel'
 import { SetupChecklist } from './Inbox'
 
 type Row = {
-  kind: 'cart' | 'permission'
+  kind: 'cart' | 'permission' | 'paypal_action'
   id: string
   at: string
   title: string
@@ -28,18 +30,18 @@ type Row = {
 
 type View = 'needs' | 'approved' | 'stopped' | 'permissions' | 'all'
 const VIEWS: [View, string][] = [
-  ['needs', 'Needs you'], ['approved', 'Approved'], ['stopped', 'Stopped'], ['permissions', 'Permissions'], ['all', 'All carts'],
+  ['needs', 'Needs you'], ['approved', 'Approved'], ['stopped', 'Stopped'], ['permissions', 'Permissions'], ['all', 'All'],
 ]
-const APPROVED = ['authorized', 'ordered', 'captured', 'payment_reported']
+const APPROVED = ['authorized', 'ordered', 'captured', 'payment_reported', 'approved', 'executing', 'done']
 const STOPPED = ['blocked', 'rejected', 'failed', 'approval_expired', 'cancelled']
 const inView = (r: Row, v: View) =>
   v === 'needs' ? r.needs
-    : v === 'approved' ? r.kind === 'cart' && APPROVED.includes(r.status)
-      : v === 'stopped' ? r.kind === 'cart' && STOPPED.includes(r.status)
+    : v === 'approved' ? r.kind !== 'permission' && APPROVED.includes(r.status)
+      : v === 'stopped' ? r.kind !== 'permission' && STOPPED.includes(r.status)
         : v === 'permissions' ? r.kind === 'permission'
-          : r.kind === 'cart'
+          : r.kind !== 'permission'
 
-function toRows(purchases: Purchase[], intents: Intent[], agents: Agent[]): Row[] {
+function toRows(purchases: Purchase[], intents: Intent[], agents: Agent[], actions: PaypalAction[] = []): Row[] {
   const name = (id: string | null | undefined) => agents.find((a) => a.agent_id === id)?.name ?? (id ? id.slice(0, 12) : 'agent')
   const carts: Row[] = purchases.map((p) => ({
     kind: 'cart', id: p.purchase_id, at: p.created_at, title: shopName(p.merchant_id), shop: p.merchant_id,
@@ -55,7 +57,13 @@ function toRows(purchases: Purchase[], intents: Intent[], agents: Agent[]): Row[
     human: true, signed: i.user_signed,
     search: `${i.intent_id} ${i.user_text} ${i.mandate.merchants.join(' ')}`.toLowerCase(),
   }))
-  return [...carts, ...perms].sort((a, b) => b.at.localeCompare(a.at))
+  const acts: Row[] = actions.map((a) => ({
+    kind: 'paypal_action', id: a.action_id, at: a.created_at, title: `PayPal · ${a.tool}`, shop: null,
+    agent: name(a.agent_id), amount: null, currency: '', status: a.status, why: a.summary,
+    needs: a.status === 'pending_approval', human: !!a.decided_by, signed: a.user_signed,
+    search: `${a.action_id} paypal ${a.tool} ${a.summary}`.toLowerCase(),
+  }))
+  return [...carts, ...perms, ...acts].sort((a, b) => b.at.localeCompare(a.at))
 }
 
 function Drawer({ row, agents, onClose }: { row: Row | null; agents: Agent[]; onClose: () => void }) {
@@ -72,21 +80,21 @@ function Drawer({ row, agents, onClose }: { row: Row | null; agents: Agent[]; on
           <div className="dhead">
             {row.kind === 'cart' && purchase.data ? <CartHeader p={purchase.data} agentName={agentName(purchase.data.agent_id)} /> : (
               <>
-                <div className="row1"><span className="mono-tile lg"><Icon name="permission" /></span>
-                  <div><div className="title">Permission</div><div className="muted small"><code>{row.id}</code></div></div>
+                <div className="row1"><span className="mono-tile lg"><Icon name={row.kind === 'permission' ? 'permission' : 'receipt'} /></span>
+                  <div><div className="title">{row.kind === 'permission' ? 'Permission' : row.why}</div><div className="muted small"><code>{row.id}</code></div></div>
                   <Badge value={row.status} /></div>
                 <div className="meta"><span><Icon name="agent" /> {row.agent}</span><span><Icon name="clock" /> {when(row.at)}</span></div>
               </>
             )}
             <div className="tools" style={{ position: 'absolute', right: 12, top: 12, display: 'flex', gap: 2 }}>
-              <Link className="button iconbtn" href={row.kind === 'cart' ? `/purchases/${row.id}` : `/intents/${row.id}`} title="Open full page"><Icon name="expand" /></Link>
+              {row.kind !== 'paypal_action' && <Link className="button iconbtn" href={row.kind === 'cart' ? `/purchases/${row.id}` : `/intents/${row.id}`} title="Open full page"><Icon name="expand" /></Link>}
               <button className="iconbtn" onClick={onClose} title="Close (Esc)" aria-label="Close"><Icon name="close" /></button>
             </div>
-            {row.kind === 'permission' && <div style={{ height: 10 }} />}
+            {row.kind !== 'cart' && <div style={{ height: 10 }} />}
           </div>
-          {row.kind === 'cart'
-            ? <PurchaseDetail id={row.id} tab={tab} onTab={setTab} />
-            : <div className="dbody"><IntentDetail id={row.id} /></div>}
+          {row.kind === 'cart' ? <PurchaseDetail id={row.id} tab={tab} onTab={setTab} />
+            : row.kind === 'paypal_action' ? <PaypalActionDetail id={row.id} />
+              : <div className="dbody"><IntentDetail id={row.id} /></div>}
         </>
       )}
     </aside>
@@ -98,6 +106,7 @@ export default function Queue() {
   const purchases = usePoll(() => api.purchases(), [], 4000)
   const intents = usePoll(() => api.intents(), [], 4000)
   const agents = usePoll(() => api.agents(), [], 30000)
+  const actions = usePoll(() => api.paypalActions(), [], 4000)
   const [chosen, setView] = useState<View | null>(() => (query.get('view') as View) || null)
   const [kbRaw, setKb] = useState(0)
   const q = (query.get('q') ?? '').toLowerCase()
@@ -105,8 +114,8 @@ export default function Queue() {
   const wrapRef = useRef<HTMLDivElement>(null)
 
   const rows = useMemo(
-    () => toRows(purchases.data ?? [], intents.data ?? [], agents.data?.agents ?? []),
-    [purchases.data, intents.data, agents.data],
+    () => toRows(purchases.data ?? [], intents.data ?? [], agents.data?.agents ?? [], actions.data ?? []),
+    [purchases.data, intents.data, agents.data, actions.data],
   )
   const counts = useMemo(() => Object.fromEntries(VIEWS.map(([v]) => [v, rows.filter((r) => inView(r, v)).length])) as Record<View, number>, [rows])
   // Until you pick a tab: "Needs you" when something waits, otherwise "All carts".
@@ -168,10 +177,11 @@ export default function Queue() {
       <header className="page-head">
         <div>
           <h1>Inbox</h1>
-          <p className="lede">{needs ? `${needs} waiting for your decision` : 'Nothing waiting for you'} · {counts.all} carts and {counts.permissions} permissions so far</p>
+          <p className="lede">{needs ? `${needs} waiting for your decision` : 'Nothing waiting for you'} · {counts.all} carts and PayPal actions, {counts.permissions} {counts.permissions === 1 ? 'permission' : 'permissions'} so far</p>
         </div>
       </header>
       {error && <Notice tone="bad">{error}</Notice>}
+      <DemoPanel onOpen={(id) => { setView('all'); setParam('view', 'all'); open(id) }} />
       <SetupChecklist />
 
       <div className="views" role="tablist">
@@ -210,12 +220,12 @@ export default function Queue() {
                     onClick={() => { setKb(i); open(r.id) }}>
                     <td><Badge value={r.status} /></td>
                     <td><span className="who">
-                      {r.kind === 'cart' ? <Monogram name={r.shop ?? ''} /> : <span className="mono-tile"><Icon name="permission" /></span>}
+                      {r.kind === 'cart' ? <Monogram name={r.shop ?? ''} /> : <span className="mono-tile"><Icon name={r.kind === 'permission' ? 'permission' : 'receipt'} /></span>}
                       <span className="what-cell"><span>{r.title}</span><span className="sub-why">{r.why.split(' · ')[0]}</span></span></span></td>
                     <td className="why opt" title={r.why}>{r.why}</td>
                     <td className="opt">{r.agent}</td>
                     <td className="num">{r.amount !== null ? `${r.amount.toFixed(2)} ${r.currency}` : '—'}{r.kind === 'permission' && <div className="muted small">budget</div>}</td>
-                    <td className="opt">{r.kind === 'cart'
+                    <td className="opt">{r.kind !== 'permission'
                       ? (APPROVED.includes(r.status) ? <Seal human={r.human} signed={r.signed} short /> : <span className="muted">—</span>)
                       : (r.status === 'active' ? <Seal human signed={r.signed} short /> : <span className="muted">—</span>)}</td>
                     <td className="muted opt-sm" title={when(r.at)}>{ago(r.at)}</td>
@@ -225,7 +235,7 @@ export default function Queue() {
             </table>
           </div>
           <div className="gridfoot">
-            <span>{visible.length} of {counts[view]} {view === 'permissions' ? 'permissions' : view === 'needs' ? 'waiting' : 'carts'}</span>
+            <span>{visible.length} of {counts[view]} {view === 'permissions' ? 'permissions' : view === 'needs' ? 'waiting' : 'items'}</span>
             <span>Approval: <Icon name="fingerprint" /> signed with your passkey · <Icon name="key" /> password only · <Icon name="bolt" /> automatic within your rules</span>
           </div>
         </div>

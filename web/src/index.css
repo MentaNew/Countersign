@@ -410,3 +410,14 @@ body.drawer-open .toolbar .hints { display: none; }
 
 body.drawer-open table.grid td, body.drawer-open table.grid th { padding: 8px 10px; }
 body.drawer-open table.grid .num { font-size: 12.5px; }
+
+/* judge mode */
+.demo-panel { border-color: var(--accent-3); }
+.demo-steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
+.demo-steps > li { display: grid; grid-template-columns: 26px minmax(0, 1fr); gap: 12px; }
+.demo-steps .n { width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; font-size: 12px; font-weight: 700; background: var(--accent-2); color: var(--accent); border: 1px solid var(--accent-3); }
+.demo-steps li.done .n { background: var(--ok); color: #fff; border-color: var(--ok); }
+.demo-steps li.locked { opacity: .6; }
+.demo-steps .what { font-weight: 600; }
+.demo-steps .actions { margin-top: 8px; }
+.demo-scenarios { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 6px; }

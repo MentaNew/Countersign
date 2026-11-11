@@ -200,3 +200,25 @@ class UserSession(SessionColumns, Base):
     after idle time or a fixed maximum, on sign-out, or when the user ends them."""
 
     __tablename__ = "user_sessions"
+
+
+class PaypalAction(Base):
+    """A money-moving call to PayPal's own agent tools (official PayPal MCP server), requested by an agent through
+    the PayPal guard. It runs only after the person approved these exact arguments, and only once."""
+
+    __tablename__ = "paypal_actions"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    agent_id: Mapped[str | None] = mapped_column(String(32), index=True)
+    tool: Mapped[str] = mapped_column(String(80))
+    arguments: Mapped[dict[str, Any]]
+    args_hash: Mapped[str] = mapped_column(String(64))
+    reason: Mapped[str | None] = mapped_column(Text)
+    # pending_approval -> approved | rejected | approval_expired; approved -> executing -> done | failed
+    status: Mapped[str] = mapped_column(String(20), default="pending_approval")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    approval_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    decided_by: Mapped[str | None] = mapped_column(String(100))
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    user_signature: Mapped[dict[str, Any] | None]
+    result: Mapped[dict[str, Any] | None]  # what PayPal answered (summary), after execution
