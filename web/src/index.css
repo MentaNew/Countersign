@@ -421,3 +421,50 @@ body.drawer-open table.grid .num { font-size: 12.5px; }
 .demo-steps .what { font-weight: 600; }
 .demo-steps .actions { margin-top: 8px; }
 .demo-scenarios { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 6px; }
+
+/* PayPal action: done */
+.ppa-done { border: 1px solid var(--ok-bd); background: var(--ok-bg); border-radius: 12px; padding: 16px 18px; margin-bottom: 14px; }
+.ppa-done-head { display: flex; gap: 12px; align-items: center; }
+.ppa-check { width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center; background: var(--ok); color: #fff; flex: none; }
+.ppa-check svg { width: 20px; height: 20px; }
+.ppa-done-title { font-weight: 650; font-size: 17px; color: var(--ok); }
+.ppa-facts { margin-top: 12px; background: var(--surface); border-radius: 8px; padding: 10px 12px; }
+
+/* Whole table row opens its item */
+tr.clickable { cursor: pointer; }
+tr.clickable:hover td { background: var(--sunken); }
+
+/* "What was caught": the demo's one-look summary of a blocked or held cart */
+.caught-wrap { margin-bottom: 14px; display: grid; gap: 10px; }
+.caught { border-radius: 12px; padding: 14px 16px; border: 1px solid; }
+.caught.bad { background: var(--bad-bg); border-color: var(--bad-bd); }
+.caught.warn { background: var(--warn-bg); border-color: var(--warn-bd); }
+.caught-title { font-weight: 650; font-size: 16px; margin-bottom: 10px; }
+.caught.bad .caught-title { color: var(--bad); }
+.caught.warn .caught-title { color: var(--warn); }
+.caught-vs { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 4px; }
+.caught .lbl { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--text-2); margin-bottom: 4px; }
+.caught .chip { display: inline-block; border-radius: 999px; padding: 3px 10px; margin: 0 6px 6px 0; font-weight: 600; font-size: 13.5px; background: var(--surface); border: 1px solid var(--border); }
+.caught .chip.ok { color: var(--ok); border-color: var(--ok-bd); }
+.caught .chip.no { color: var(--bad); border-color: var(--bad-bd); }
+.caught .big { font-size: 20px; font-weight: 650; }
+.caught .big.no { color: var(--bad); }
+.caught-quote { margin: 0 0 10px; background: var(--surface); border-left: 3px solid var(--warn); border-radius: 6px; padding: 10px 12px; font-size: 14px; }
+.caught-quote mark.bait { background: #fecaca; color: #7f1d1d; padding: 1px 2px; border-radius: 3px; }
+.caught-arrow .lbl { margin-top: 2px; }
+
+/* Judge mode: each cart's result right under the buttons */
+.demo-results { list-style: none; margin: 10px 0 8px; padding: 0; display: grid; gap: 6px; }
+.demo-results li { display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: 2px 10px; padding: 8px 10px; border-radius: 8px; border: 1px solid; cursor: pointer; font-size: 13.5px; animation: demo-in .35s ease-out; }
+.demo-results li:hover { filter: brightness(.97); }
+.demo-results li.ok { background: var(--ok-bg); border-color: var(--ok-bd); }
+.demo-results li.warn { background: var(--warn-bg); border-color: var(--warn-bd); }
+.demo-results li.bad { background: var(--bad-bg); border-color: var(--bad-bd); }
+.demo-results .res { font-weight: 650; grid-row: span 2; }
+.demo-results li.ok .res { color: var(--ok); }
+.demo-results li.warn .res { color: var(--warn); }
+.demo-results li.bad .res { color: var(--bad); }
+.demo-results .why { color: var(--text-2); font-size: 12.5px; }
+@keyframes demo-in { from { opacity: 0; transform: translateY(-4px); } }
+.caught-quote .hidden-part { display: block; margin-top: 6px; border: 1px dashed var(--bad-bd); border-radius: 6px; padding: 6px 8px; }
+.caught-quote .hidden-tag { display: block; font-size: 11.5px; font-weight: 650; text-transform: uppercase; letter-spacing: .04em; color: var(--bad); margin-bottom: 2px; }

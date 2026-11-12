@@ -44,7 +44,8 @@ export default function DisputesPage() {
               <thead><tr><th>Case</th><th>Reason</th><th className="num">Disputed</th><th>Due</th><th>Buyer receipt</th><th>Suggested</th></tr></thead>
               <tbody>
                 {list.data.map((d) => (
-                  <tr key={d.dispute_id}>
+                  <tr key={d.dispute_id} className="clickable" title="Open this case"
+                    onClick={() => navigate(`/seller/disputes/${d.dispute_id}`)}>
                     <td>
                       <Link href={`/seller/disputes/${d.dispute_id}`}><code>{d.dispute_id}</code></Link>
                       {d.source === 'simulated' && <div><Badge value="simulated" /></div>}

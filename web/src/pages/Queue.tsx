@@ -58,8 +58,9 @@ function toRows(purchases: Purchase[], intents: Intent[], agents: Agent[], actio
     search: `${i.intent_id} ${i.user_text} ${i.mandate.merchants.join(' ')}`.toLowerCase(),
   }))
   const acts: Row[] = actions.map((a) => ({
-    kind: 'paypal_action', id: a.action_id, at: a.created_at, title: `PayPal · ${a.tool}`, shop: null,
-    agent: name(a.agent_id), amount: null, currency: '', status: a.status, why: a.summary,
+    kind: 'paypal_action', id: a.action_id, at: a.created_at, title: a.summary, shop: null,
+    agent: name(a.agent_id), amount: null, currency: '', status: a.status,
+    why: a.impact === 'money' ? 'PayPal action · money moves' : 'PayPal action · no money moves',
     needs: a.status === 'pending_approval', human: !!a.decided_by, signed: a.user_signed,
     search: `${a.action_id} paypal ${a.tool} ${a.summary}`.toLowerCase(),
   }))
@@ -81,7 +82,7 @@ function Drawer({ row, agents, onClose }: { row: Row | null; agents: Agent[]; on
             {row.kind === 'cart' && purchase.data ? <CartHeader p={purchase.data} agentName={agentName(purchase.data.agent_id)} /> : (
               <>
                 <div className="row1"><span className="mono-tile lg"><Icon name={row.kind === 'permission' ? 'permission' : 'receipt'} /></span>
-                  <div><div className="title">{row.kind === 'permission' ? 'Permission' : row.why}</div><div className="muted small"><code>{row.id}</code></div></div>
+                  <div><div className="title">{row.kind === 'permission' ? 'Permission' : row.title}</div><div className="muted small"><code>{row.id}</code></div></div>
                   <Badge value={row.status} /></div>
                 <div className="meta"><span><Icon name="agent" /> {row.agent}</span><span><Icon name="clock" /> {when(row.at)}</span></div>
               </>

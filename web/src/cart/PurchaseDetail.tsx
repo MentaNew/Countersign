@@ -94,6 +94,97 @@ function AllowedVsAsked({ p, intent }: { p: Purchase; intent: Intent }) {
   )
 }
 
+// Sentences that talk to an AI agent rather than a shopper (shown highlighted; the gateway's own check decides).
+const BAIT = /\b(assistant|AI\b|agents?\b|you must|do not mention|don't mention|ignore|instruction|claim)/i
+
+function Sentences({ text }: { text: string }) {
+  const parts = text.split(/(?<=[.!?])\s+/).filter(Boolean)
+  return <>{parts.map((s, i) => <span key={i}>{BAIT.test(s) ? <mark className="bait">{s}</mark> : s}{' '}</span>)}</>
+}
+
+/** Page text with its invisible parts (display:none, hidden) labelled, and agent-aimed sentences highlighted. */
+function Marked({ text }: { text: string }) {
+  const hidden = /<(\w+)[^>]*(display\s*:\s*none|visibility\s*:\s*hidden|hidden)[^>]*>([\s\S]*?)<\/\1>/gi
+  const out: ReactNode[] = []
+  let last = 0
+  const strip = (s: string) => s.replace(/<[^>]+>/g, '').trim()
+  for (const m of text.matchAll(hidden)) {
+    out.push(<Sentences key={`v${last}`} text={strip(text.slice(last, m.index))} />)
+    out.push(<span key={`h${m.index}`} className="hidden-part"><span className="hidden-tag">hidden on the page, invisible to shoppers</span><Sentences text={strip(m[3])} /></span>)
+    last = (m.index ?? 0) + m[0].length
+  }
+  out.push(<Sentences key="end" text={strip(text.slice(last))} />)
+  return <>{out}</>
+}
+
+/** Signature for the demo: what the gateway caught, in one look (shop, budget, a page giving the agent orders). */
+function Caught({ p, intent }: { p: Purchase; intent: Intent | null }) {
+  const v = p.verdict
+  const shop = check(v.hard_checks, 'merchant_allowed')
+  const budget = check(v.hard_checks, 'budget')
+  const flagged = new Set(v.semantic?.flagged_skus ?? [])
+  const odd = p.lines.filter((l) => flagged.has(l.sku) || l.item === null)
+  const scores = v.injection?.per_text ?? []
+  const limit = v.thresholds?.max_injection ?? 0.5
+  const baitIdx = scores.map((s, i) => (s >= limit ? i : -1)).filter((i) => i >= 0)
+  const nothingPaid = !['ordered', 'captured', 'authorized', 'payment_reported'].includes(p.status)
+  const out: ReactNode[] = []
+
+  if (shop && !shop.passed) {
+    out.push(
+      <div key="shop" className="caught bad">
+        <div className="caught-title">✋ Stopped: this shop isn't in your permission</div>
+        <div className="caught-vs">
+          <div><div className="lbl">Your shops</div>{(intent?.mandate.merchants ?? []).map((m) => <span key={m} className="chip ok">{shopName(m)}</span>)}</div>
+          <div><div className="lbl">The agent tried</div><span className="chip no">{shopName(p.merchant_id)}</span></div>
+        </div>
+      </div>)
+  }
+  if (budget && !budget.passed) {
+    out.push(
+      <div key="budget" className="caught bad">
+        <div className="caught-title">✋ Stopped: over your budget</div>
+        <div className="caught-vs">
+          <div><div className="lbl">Your budget</div><span className="big">{intent ? money(intent.mandate.max_total) : '—'}</span></div>
+          <div><div className="lbl">This cart</div><span className="big no">{Number(p.total).toFixed(2)} {p.currency}</span></div>
+        </div>
+        <div className="small">{budget.detail}</div>
+      </div>)
+  }
+  if (baitIdx.length) {
+    out.push(
+      <div key="bait" className="caught warn">
+        <div className="caught-title">⚠ Caught: the shop's page tried to give your agent orders</div>
+        {baitIdx.map((i) => (
+          <blockquote key={i} className="caught-quote">
+            <div className="lbl">Text on the shop's page the agent read</div>
+            <Marked text={p.context_texts[i] ?? ''} />
+          </blockquote>
+        ))}
+        {odd.length > 0 && (
+          <div className="caught-arrow">
+            <div className="lbl">↓ what it made the agent put in your cart</div>
+            {odd.map((l, j) => <div key={j} className="chip no">{l.qty} × {l.title} · {money(l.unit_price)}</div>)}
+          </div>
+        )}
+      </div>)
+  } else if (odd.length && !(shop && !shop.passed)) {
+    out.push(
+      <div key="odd" className="caught warn">
+        <div className="caught-title">⚠ Held: something in this cart isn't what you asked for</div>
+        {odd.map((l, j) => <div key={j} className="chip no">{l.qty} × {l.title} · {money(l.unit_price)}</div>)}
+      </div>)
+  }
+  if (!out.length) return null
+  return (
+    <div className="caught-wrap">
+      {out}
+      {nothingPaid && <p className="small muted" style={{ margin: '6px 2px 0' }}>Nothing was paid. The gateway checks every cart
+        against your permission, whatever a web page says.</p>}
+    </div>
+  )
+}
+
 const EVENT: Record<string, { label: string; icon: string; cls?: string }> = {
   purchase_decision: { label: 'Agent asked; gateway checked the cart', icon: 'cart' },
   purchase_approved_by_human: { label: 'You approved this exact cart', icon: 'fingerprint', cls: 'done' },
@@ -252,6 +343,7 @@ export default function PurchaseDetail({ id, tab, onTab }: { id: string; tab: Ca
       <div className="dbody">
         {tab === 'decision' && (
           <>
+            <Caught p={p} intent={intent} />
             {p.status === 'pending_approval' && (
               <Card title={<>Your decision is needed <span className="meta">expires in {left}</span></>} tone="focus">
                 <ul className="reasons">{p.reasons.map((r, i) => <li key={i}>{plainReason(r)}{plainReason(r) !== r && <div className="muted small">{r}</div>}</li>)}</ul>
@@ -270,7 +362,8 @@ export default function PurchaseDetail({ id, tab, onTab }: { id: string; tab: Ca
                 </div>
               </Card>
             )}
-            {p.status === 'blocked' && <Notice tone="bad"><strong>Blocked by the gateway.</strong> {p.error ?? p.reasons.join('; ')}</Notice>}
+            {p.status === 'blocked' && !p.verdict.hard_checks.some((c) => !c.passed && ['merchant_allowed', 'budget'].includes(c.name)) && (
+              <Notice tone="bad"><strong>Blocked by the gateway.</strong> {p.error ?? p.reasons.map(plainReason).join('; ')}</Notice>)}
             {p.status === 'failed' && <Notice tone="bad"><strong>Order failed at PayPal.</strong> {p.error}</Notice>}
             {p.payment_confirmation && (() => {
               const c = p.payment_confirmation.confirmation

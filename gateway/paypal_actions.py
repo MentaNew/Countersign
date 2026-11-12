@@ -12,7 +12,7 @@ from typing import Any
 from sqlalchemy import select
 
 from gateway.canonical import canonical_json, sha256_hex
-from gateway.db.models import PaypalAction
+from gateway.db.models import LogEntry, PaypalAction
 from gateway.ledger import chain
 from gateway.service import Gateway, GatewayError, NotFound, new_id, now
 from gateway.signing.passkeys import new_statement
@@ -38,7 +38,9 @@ def summary(tool: str, a: dict[str, Any]) -> str:
             return f"{x.get('value')} {x.get('currency_code', '')}".strip()
         return str(x) if x is not None else ""
     if tool == "create_refund":
-        return f"Refund {amount(a.get('amount')) or 'the full amount'} of capture {a.get('capture_id', '?')}"
+        return f"Give a customer {amount(a.get('amount')) or 'their full payment'} back (refund of payment {a.get('capture_id', '?')})"
+    if tool == "create_product":
+        return f"Add the product \"{a.get('name', '?')}\" to your PayPal catalog"
     if tool == "create_order":
         items = a.get("items") or []
         total = sum(float(i.get("itemCost", 0)) * float(i.get("quantity", 1)) for i in items if isinstance(i, dict))
@@ -49,12 +51,26 @@ def summary(tool: str, a: dict[str, Any]) -> str:
     if tool in ("send_invoice", "send_invoice_reminder"):
         return f"Send invoice {a.get('invoice_id', '?')} to the recipient"
     if tool == "create_invoice":
-        return "Create an invoice"
+        try:
+            to = a["primary_recipients"][0]["billing_info"]["email_address"]
+            return f"Create an invoice for {to}"
+        except (KeyError, IndexError, TypeError):
+            return "Create an invoice"
     if tool == "accept_dispute_claim":
         return f"Accept dispute {a.get('dispute_id', '?')} (refunds the buyer)"
     if tool.startswith("create_subscription") or tool == "create_subscription":
         return "Start a subscription (recurring payments)"
     return tool.replace("_", " ").capitalize()
+
+
+MONEY_TOOLS = ("refund", "pay_order", "create_order", "dispute", "subscription", "send_invoice")
+
+
+def impact(tool: str) -> str:
+    """Does money move? Said plainly next to the decision."""
+    if any(k in tool for k in MONEY_TOOLS):
+        return "money"
+    return "account"
 
 
 class PaypalActions:
@@ -67,7 +83,7 @@ class PaypalActions:
         if status == "pending_approval" and a.approval_expires_at and now() > a.approval_expires_at:
             status = "approval_expired"
         view = {"action_id": a.id, "agent_id": a.agent_id, "tool": a.tool, "arguments": a.arguments,
-                "args_hash": a.args_hash, "summary": summary(a.tool, a.arguments), "reason": a.reason,
+                "args_hash": a.args_hash, "summary": summary(a.tool, a.arguments), "impact": impact(a.tool), "reason": a.reason,
                 "status": status, "created_at": a.created_at.isoformat(),
                 "approval_expires_at": a.approval_expires_at.isoformat() if a.approval_expires_at else None,
                 "decided_by": a.decided_by, "user_signed": bool(a.user_signature), "result": a.result,
@@ -104,7 +120,14 @@ class PaypalActions:
 
     async def get(self, action_id: str, for_agent: bool = False) -> dict[str, Any]:
         async with self.gw.sessions() as s:
-            return self._view(await self._get(s, action_id), for_agent)
+            view = self._view(await self._get(s, action_id), for_agent)
+            if not for_agent:
+                # Its steps in the audit log, for the person's timeline.
+                q = (select(LogEntry).where(LogEntry.payload["action_id"].as_string() == action_id)
+                     .order_by(LogEntry.seq))
+                view["history"] = [{"seq": e.seq, "at": e.at.isoformat(), "event": e.event}
+                                   for e in (await s.execute(q)).scalars()]
+            return view
 
     async def recent(self, limit: int = 100) -> list[dict[str, Any]]:
         async with self.gw.sessions() as s:

@@ -18,11 +18,13 @@ Needs Google Chrome. Opens PayPal's sandbox site once (after approval) to show i
 
 import asyncio
 import base64
+import contextlib
 import sys
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import httpx
+from playwright.async_api import Error as PlaywrightError
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from functools import lru_cache
@@ -35,6 +37,7 @@ from gateway.config import get_settings
 from tests.soft_passkey import SoftPasskey
 
 GW, ORIGIN, SHOP = "http://localhost:8001", "http://localhost:5174", "http://greenleaf.localhost:8300"
+MERCHANT = "http://localhost:8100"  # demo merchants (one product page carries a planted injection)
 
 
 @lru_cache
@@ -108,7 +111,17 @@ async def run(out: Path) -> int:
         check("on the shop's checkout page", "/checkout" in snap["url"], snap["url"])
         await shot("1-checkout")
 
-        snap = await tool("click", ref=ref(snap, text="Pay with PayPal"))
+        clicking = asyncio.create_task(tool("click", ref=ref(snap, text="Pay with PayPal")))
+        page, title = await guard.page(), ""
+        for _ in range(20):  # the guard shows its "payment locked" page for a moment
+            await asyncio.sleep(0.15)
+            with contextlib.suppress(PlaywrightError):  # the page may be mid-navigation
+                title = await page.title()
+            if "Payment locked" in title:
+                break
+        check("a readable 'payment locked' page instead of Chrome's error", "Payment locked" in title)
+        await shot("1b-locked")
+        snap = await clicking
         check("PayPal step blocked before approval", "blocked" in snap
               and host_of(snap["url"]) == "greenleaf.localhost", snap["url"])
         page = await guard.page()
@@ -124,9 +137,17 @@ async def run(out: Path) -> int:
         full = api("GET", f"/api/purchases/{held['purchase_id']}")
         (out / "2-guard-screenshot.png").write_bytes(
             base64.b64decode(full["page_screenshot_png_b64"]))
+        await shot("2b-waiting")
         o = api("POST", f"/api/purchases/{held['purchase_id']}/approval-options")
         api("POST", f"/api/purchases/{held['purchase_id']}/decision", approve=True,
             cart_hash=held["cart_hash"], webauthn=dev.sign(o["options"]))
+        for _ in range(40):  # the guard notices the approval by itself
+            if guard.unlocked():
+                break
+            await asyncio.sleep(0.5)
+        check("payment unlocked by itself after the approval (no agent call)", guard.unlocked())
+        await asyncio.sleep(0.5)
+        await shot("2c-unlocked")
         done = await tool("wait_for_approval", purchase_id=held["purchase_id"], wait_seconds=0)
         check("approved; guard checked the permit and unlocked payment",
               done["status"] == "authorized" and "unlocked" in done.get("payment", ""),
@@ -160,6 +181,12 @@ async def run(out: Path) -> int:
         snap = await tool("open_page", url=f"{SHOP}/checkout")
         snap = await tool("click", ref=ref(snap, text="Pay with PayPal"))
         check("locked again: PayPal blocked", "blocked" in snap)
+
+        # A shop outside the permission, with text aimed at AI agents: both are flagged in the browser.
+        snap = await tool("open_page", url=f"{MERCHANT}/papermill-supply/PM-A4-500W-DEAL")
+        w = snap.get("warnings", {})
+        check("other shop and agent-aimed text are flagged", "shop" in w and "agent_bait" in w, str(list(w)))
+        await shot("4-warnings")
     finally:
         await guard.close()
         await gateway.aclose()

@@ -72,6 +72,7 @@ export type PaypalAction = {
   arguments: Record<string, unknown>
   args_hash: string
   summary: string
+  impact: 'money' | 'account'
   reason: string | null
   status: string
   created_at: string
@@ -79,6 +80,7 @@ export type PaypalAction = {
   decided_by: string | null
   user_signed: boolean
   result: { text?: string } | null
+  history?: { seq: number; at: string; event: string }[]
 }
 
 /** Judge mode (DEMO_MODE on the gateway): a scripted demo agent the person drives from the Inbox. */

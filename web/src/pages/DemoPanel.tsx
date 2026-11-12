@@ -1,13 +1,14 @@
 // Judge mode: drive a scripted demo agent from the Inbox. The person still approves everything themselves.
 import { useEffect, useState } from 'react'
-import { api, ApiError, type DemoState } from '../api'
+import { api, ApiError, type DemoState, type Purchase } from '../api'
 import { Icon } from '../icons'
-import { Notice } from '../ui'
+import { Notice, plainReason } from '../ui'
 
 export default function DemoPanel({ onOpen }: { onOpen: (id: string) => void }) {
   const [state, setState] = useState<DemoState | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [results, setResults] = useState<Record<string, Purchase>>({})
   const load = () => api.demoState().then(setState).catch((e) => {
     if (!(e instanceof ApiError && e.status === 404)) setError(String(e.message ?? e))
   })
@@ -26,6 +27,7 @@ export default function DemoPanel({ onOpen }: { onOpen: (id: string) => void }) 
     setError(null)
     try {
       const r = await f()
+      if (r.purchase_id) setResults((x) => ({ ...x, [key]: r as Purchase }))
       onOpen((r.purchase_id ?? r.intent_id)!)
       await load()
     } catch (e) {
@@ -70,6 +72,24 @@ export default function DemoPanel({ onOpen }: { onOpen: (id: string) => void }) 
                 </button>
               ))}
             </div>
+            {state.scenarios.some((s) => results[s.id]) && (
+              <ul className="demo-results">
+                {state.scenarios.filter((s) => results[s.id]).map((s) => {
+                  const r = results[s.id]
+                  const tone = r.decision === 'approve' ? 'ok' : r.decision === 'block' ? 'bad' : 'warn'
+                  const head = r.decision === 'approve' ? '✅ Paid, in policy' : r.decision === 'block' ? '✋ Blocked' : '⏸ Held for you'
+                  // The most telling reason first: a page giving orders, then extra items, then the rest.
+                  const rs = r.reasons ?? []
+                  const top = rs.find((x) => /instruction/.test(x)) ?? rs.find((x) => /unrequested|do not look like/.test(x)) ?? rs[0]
+                  const why = top ? plainReason(top) : ''
+                  return (
+                    <li key={s.id} className={tone} onClick={() => onOpen(r.purchase_id)} title="Open this cart">
+                      <span className="res">{head}</span><span className="lbl">{s.label}</span>{why && <span className="why">{why}</span>}
+                    </li>
+                  )
+                })}
+              </ul>
+            )}
             <div className="muted small">Hover a button for what should happen. {offline && 'This server uses the offline checker, so the AI-only case (US Letter instead of A4) is not caught here.'}</div>
           </div>
         </li>

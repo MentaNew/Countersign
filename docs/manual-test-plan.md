@@ -107,7 +107,7 @@ The agent shops on a normal-looking shop that signs nothing and knows nothing ab
    export GUARD_AGENT_KEY=<the key you copied>
    claude          # /mcp should show "checkout-guard" connected; a Chrome window opens on first use
    ```
-4. Ask: *"Buy 10 reams of A4 copy paper from greenleaf.localhost, max 60 USD including shipping and tax, valid today."* Approve the permission (Touch ID).
+4. Ask: *"Buy 10 reams of A4 copy paper from http://greenleaf.localhost:8300, max 60 USD including shipping and tax, valid today."* Approve the permission (Touch ID).
 
 | Check | Expected |
 |---|---|

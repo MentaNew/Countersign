@@ -50,6 +50,13 @@ def build_server(guard: CheckoutGuard, gateway: GatewayClient) -> MCPServer:
         except (GuardError, GatewayError) as e:
             raise ToolError(str(e)) from e
 
+    def remember(intent: dict[str, Any]) -> dict[str, Any]:
+        """The guard warns (in the browser) when the agent shops outside the permitted shops."""
+        shops = (intent.get("mandate") or {}).get("merchants")
+        if shops:
+            guard.allowed_shops = list(shops)
+        return intent
+
     @mcp.tool()
     async def confirm_intent(
         user_text: str = Field(description="The user's request, in their words"),
@@ -62,20 +69,20 @@ def build_server(guard: CheckoutGuard, gateway: GatewayClient) -> MCPServer:
         max_purchases: int = 5,
     ) -> dict[str, Any]:
         """Propose a purchase permission for the user to approve. Returns intent_id, review_url."""
-        return await guarded(gateway.call(
+        return remember(await guarded(gateway.call(
             "confirm_intent", user_text=user_text,
             items=[i.model_dump(mode="json") for i in items],
             max_total=max_total.model_dump(mode="json"),
             merchants=[m.lower().removeprefix("https://").removeprefix("www.").strip("/")
                        for m in merchants],
             expires_at=expires_at.isoformat(), max_purchases=max_purchases,
-            approval_above=approval_above.model_dump(mode="json") if approval_above else None))
+            approval_above=approval_above.model_dump(mode="json") if approval_above else None)))
 
     @mcp.tool()
     async def get_intent_status(intent_id: str, wait_seconds: float = 30) -> dict[str, Any]:
         """Status of a permission: pending_user, active, rejected."""
-        return await guarded(gateway.call("get_intent_status", intent_id=intent_id,
-                                          wait_seconds=wait_seconds))
+        return remember(await guarded(gateway.call("get_intent_status", intent_id=intent_id,
+                                                   wait_seconds=wait_seconds)))
 
     @mcp.tool()
     async def open_page(url: str) -> dict[str, Any]:
@@ -125,6 +132,12 @@ def build_server(guard: CheckoutGuard, gateway: GatewayClient) -> MCPServer:
                                      context_texts=context_texts)
             out["read_by_guard"] = {k: cart[k] for k in ("lines", "shipping", "tax", "total",
                                                          "page_url")}
+            if out.get("status") in ("pending_approval", "authorized") and out.get("purchase_id"):
+                await guard.show(mode="waiting", text="⏳ Waiting for your approval in Spend Guardrail",
+                                 sub=f"cart {guard.cart_total} · payment 🔒 locked")
+                guard.watch(out["purchase_id"])
+                out["note"] = ("The guard unlocks payment by itself as soon as the person approves; "
+                               "wait_for_approval tells you when.")
             return out
         return await guarded(run())
 
@@ -149,7 +162,7 @@ def build_server(guard: CheckoutGuard, gateway: GatewayClient) -> MCPServer:
         async def run() -> dict[str, Any]:
             report = await guard.payment_report()
             out = await gateway.call("confirm_page_payment", purchase_id=purchase_id, **report)
-            guard.lock()
+            await guard.lock()
             return out
         return await guarded(run())
 

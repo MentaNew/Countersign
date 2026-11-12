@@ -16,7 +16,8 @@ REFUND = {"capture_id": "CAP123", "amount": {"value": "10.00", "currency_code": 
 def test_read_only_tools_and_plain_summaries():
     assert is_read_only("list_invoices") and is_read_only("get_order") and is_read_only("show_product_details")
     assert not is_read_only("create_refund") and not is_read_only("pay_order") and not is_read_only("send_invoice")
-    assert summary("create_refund", REFUND) == "Refund 10.00 USD of capture CAP123"
+    assert summary("create_refund", REFUND) == "Give a customer 10.00 USD back (refund of payment CAP123)"
+    assert summary("create_product", {"name": "Desk lamp"}) == "Add the product \"Desk lamp\" to your PayPal catalog"
 
 
 async def test_approve_then_run_once_with_the_exact_arguments(gw):
@@ -33,6 +34,9 @@ async def test_approve_then_run_once_with_the_exact_arguments(gw):
         await acts.claim(req["action_id"], None, "create_refund", REFUND)
     done = await acts.report(req["action_id"], None, True, {"text": "{\"id\": \"R1\"}"})
     assert done["status"] == "done"
+    steps = [h["event"] for h in (await acts.get(req["action_id"]))["history"]]
+    assert steps == ["paypal_action_requested", "paypal_action_approved", "paypal_action_executing",
+                     "paypal_action_done"]
     log = [e["event"] for e in await gw.get_log()]
     for ev in ("paypal_action_requested", "paypal_action_approved", "paypal_action_executing", "paypal_action_done"):
         assert ev in log
